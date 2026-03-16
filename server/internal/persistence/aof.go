@@ -3,9 +3,11 @@ package aof
 import (
 	"context"
 	"encoding/binary"
+	"io"
 	"os"
 	"time"
 
+	"github.com/ARCoder181105/kvstore/internal/protocol"
 	"github.com/ARCoder181105/kvstore/internal/store"
 )
 
@@ -68,13 +70,94 @@ func (a *AOFWriter) Append(entry AOFEntry) {
 	select {
 	case a.ch <- entry:
 	default:
-		// Drop the entry if the channel is full (non-blocking)
-		// Optionally, log or handle dropped entries here
-		
+		// Buffer full — entry dropped. At most 1024 ops at risk on crash.
+		// Acceptable for this project. In production, you'd block or alert.
 	}
 }
 
-func Replay(path string, s *store.Store) error
+func Replay(path string, s *store.Store) error {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // no AOF log yet, that's fine on first startup
+		}
+		return err
+	}
+	defer file.Close()
+
+	buff := make([]byte, 8)
+	
+	for {
+		entry := &AOFEntry{}
+
+		// timeStamp
+		_, err := io.ReadFull(file, buff)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		// entry.Timestamp = int64(binary.BigEndian.Uint64(buff))
+
+		// Cmd
+		_, err = io.ReadFull(file, buff[:1])
+		if err != nil {
+			return err
+		}
+		entry.CmdID = buff[0]
+
+		//keyLen
+		_, err = io.ReadFull(file, buff[:4])
+		if err != nil {
+			return err
+		}
+		keyLen := binary.BigEndian.Uint32(buff[:4])
+
+		// Key
+		keyBuf := make([]byte, keyLen)
+		_, err = io.ReadFull(file, keyBuf)
+		if err != nil {
+			return err
+		}
+		entry.Key = string(keyBuf)
+
+		// valueLen
+		_, err = io.ReadFull(file, buff[:4])
+		if err != nil {
+			return err
+		}
+		valueLen := binary.BigEndian.Uint32(buff[:4])
+
+		// Value
+		value := make([]byte, valueLen)
+		_, err = io.ReadFull(file, value)
+		if err != nil {
+			return err
+		}
+		entry.Value = value
+
+		// TTL
+		_, err = io.ReadFull(file, buff)
+		if err != nil {
+			return err
+		}
+		entry.TTL = int64(binary.BigEndian.Uint64(buff))
+
+		switch entry.CmdID {
+		case protocol.CmdSet:
+			s.Set(entry.Key, entry.Value, entry.TTL)
+		case protocol.CmdDel:
+			s.Delete(entry.Key)
+		case protocol.CmdExpire:
+			s.Expire(entry.Key, entry.TTL)
+		case protocol.CmdIncr:
+			s.Incr(entry.Key)
+		}
+	}
+
+	return nil
+}
 
 func (a *AOFWriter) writeEntry(entry AOFEntry) error {
 	buf := make([]byte, 8)

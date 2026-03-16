@@ -299,3 +299,15 @@ func (s *Store) Keys(pattern string) []string {
 
 	return keys
 }
+
+func (s *Store) Snapshot() map[string]*Entry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// make a copy — don't hand out the live map
+	copy := make(map[string]*Entry, len(s.data))
+	for k, v := range s.data {
+		copy[k] = v
+	}
+	return copy
+}
