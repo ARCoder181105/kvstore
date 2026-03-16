@@ -311,3 +311,9 @@ func (s *Store) Snapshot() map[string]*Entry {
 	}
 	return copy
 }
+
+func (s *Store) SetRaw(key string, entry *Entry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[key] = entry
+}

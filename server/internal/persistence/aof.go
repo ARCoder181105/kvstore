@@ -3,6 +3,7 @@ package aof
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -54,7 +55,9 @@ func (a *AOFWriter) Start(ctx context.Context) {
 	for {
 		select {
 		case entry := <-a.ch:
-			a.writeEntry(entry)
+			if err := a.writeEntry(entry); err != nil {
+				fmt.Printf("AOF write error: %v\n", err)
+			}
 		case <-a.ticker.C:
 			a.file.Sync()
 		case <-ctx.Done():
@@ -86,7 +89,7 @@ func Replay(path string, s *store.Store) error {
 	defer file.Close()
 
 	buff := make([]byte, 8)
-	
+
 	for {
 		entry := &AOFEntry{}
 
@@ -162,26 +165,37 @@ func Replay(path string, s *store.Store) error {
 func (a *AOFWriter) writeEntry(entry AOFEntry) error {
 	buf := make([]byte, 8)
 
-	// write timestamp
 	binary.BigEndian.PutUint64(buf, uint64(entry.Timestamp))
-	a.file.Write(buf)
+	if _, err := a.file.Write(buf); err != nil {
+		return err
+	}
 
-	// write command ID
-	a.file.Write([]byte{entry.CmdID})
+	if _, err := a.file.Write([]byte{entry.CmdID}); err != nil {
+		return err
+	}
 
-	// write key length + key
 	binary.BigEndian.PutUint32(buf[:4], uint32(len(entry.Key)))
-	a.file.Write(buf[:4])
-	a.file.Write([]byte(entry.Key))
+	if _, err := a.file.Write(buf[:4]); err != nil {
+		return err
+	}
 
-	// write value length + value
+	if _, err := a.file.Write([]byte(entry.Key)); err != nil {
+		return err
+	}
+
 	binary.BigEndian.PutUint32(buf[:4], uint32(len(entry.Value)))
-	a.file.Write(buf[:4])
-	a.file.Write(entry.Value)
+	if _, err := a.file.Write(buf[:4]); err != nil {
+		return err
+	}
 
-	// write TTL
+	if _, err := a.file.Write(entry.Value); err != nil {
+		return err
+	}
+
 	binary.BigEndian.PutUint64(buf, uint64(entry.TTL))
-	a.file.Write(buf)
+	if _, err := a.file.Write(buf); err != nil {
+		return err
+	}
 
 	return nil
 }
