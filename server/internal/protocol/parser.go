@@ -6,12 +6,12 @@ import (
 )
 
 // SET name Alice
-// 01                      ← command ID (1 byte)  — 0x01 means SET
-// 00 00 00 04             ← key length (4 bytes) — number 4
-// 6E 61 6D 65             ← key bytes            — "name" in ASCII
+// 01                      ← command ID (1 byte)    — 0x01 means SET
+// 00 00 00 04             ← key length (4 bytes)   — number 4
+// 6E 61 6D 65             ← key bytes              — "name" in ASCII
 // 00 00 00 05             ← value length (4 bytes) — number 5
-// 41 6C 69 63 65          ← value bytes          — "Alice" in ASCII
-// 00 00 00 00 00 00 00 00 ← TTL (8 bytes)        — 0 means no expiry
+// 41 6C 69 63 65          ← value bytes            — "Alice" in ASCII
+// 00 00 00 00 00 00 00 00 ← TTL (8 bytes)          — 0 means no expiry
 
 func ReadCommand(r io.Reader) (*Command, error) {
 

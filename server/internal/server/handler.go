@@ -6,7 +6,9 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
+	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/protocol"
 )
 
@@ -35,6 +37,15 @@ func (s *Server) executeCommand(cmd *protocol.Command) *protocol.Response {
 	switch cmd.ID {
 	case protocol.CmdSet:
 		s.store.Set(cmd.Key, cmd.Value, cmd.TTL)
+		if s.aofWriter != nil {
+			s.aofWriter.Append(aof.AOFEntry{
+				Timestamp: time.Now().UnixNano(),
+				CmdID:     protocol.CmdSet,
+				Key:       cmd.Key,
+				Value:     cmd.Value,
+				TTL:       cmd.TTL,
+			})
+		}
 		return &protocol.Response{Status: protocol.StatusOK}
 
 	case protocol.CmdGet:
@@ -46,6 +57,13 @@ func (s *Server) executeCommand(cmd *protocol.Command) *protocol.Response {
 
 	case protocol.CmdDel:
 		ok := s.store.Delete(cmd.Key)
+		if ok && s.aofWriter != nil {
+			s.aofWriter.Append(aof.AOFEntry{
+				Timestamp: time.Now().UnixNano(),
+				CmdID:     protocol.CmdDel,
+				Key:       cmd.Key,
+			})
+		}
 		if !ok {
 			return &protocol.Response{Status: protocol.StatusNull, Payload: []byte("0")}
 		}
@@ -53,6 +71,14 @@ func (s *Server) executeCommand(cmd *protocol.Command) *protocol.Response {
 
 	case protocol.CmdExpire:
 		ok := s.store.Expire(cmd.Key, cmd.TTL)
+		if ok && s.aofWriter != nil {
+			s.aofWriter.Append(aof.AOFEntry{
+				Timestamp: time.Now().UnixNano(),
+				CmdID:     protocol.CmdExpire,
+				Key:       cmd.Key,
+				TTL:       cmd.TTL,
+			})
+		}
 		if !ok {
 			return &protocol.Response{Status: protocol.StatusError, Payload: []byte("key not found")}
 		}
@@ -70,6 +96,14 @@ func (s *Server) executeCommand(cmd *protocol.Command) *protocol.Response {
 		val, err := s.store.Incr(cmd.Key)
 		if err != nil {
 			return &protocol.Response{Status: protocol.StatusError, Payload: []byte(err.Error())}
+		}
+		if s.aofWriter != nil {
+			s.aofWriter.Append(aof.AOFEntry{
+				Timestamp: time.Now().UnixNano(),
+				CmdID:     protocol.CmdSet,
+				Key:       cmd.Key,
+				Value:     []byte(strconv.FormatInt(val, 10)),
+			})
 		}
 		return &protocol.Response{Status: protocol.StatusInt, Payload: []byte(strconv.FormatInt(val, 10))}
 

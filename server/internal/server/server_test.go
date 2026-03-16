@@ -8,14 +8,19 @@ import (
 	"github.com/ARCoder181105/kvstore/internal/store"
 )
 
-func TestSetAndGet(t *testing.T) {
+// helper to create a test server with no AOF writer
+func newTestServer(t *testing.T) *Server {
+	t.Helper()
 	s := store.New()
-	srv := New(":0", s)
-
-	err := srv.Start()
-	if err != nil {
+	srv := New(":0", s, nil) // nil = no AOF in tests
+	if err := srv.Start(); err != nil {
 		t.Fatalf("server failed to start: %v", err)
 	}
+	return srv
+}
+
+func TestSetAndGet(t *testing.T) {
+	srv := newTestServer(t)
 	defer srv.Stop()
 
 	conn, err := net.Dial("tcp", srv.Addr())
@@ -24,7 +29,6 @@ func TestSetAndGet(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// send SET command
 	err = protocol.WriteCommand(conn, &protocol.Command{
 		ID:    protocol.CmdSet,
 		Key:   "name",
@@ -34,7 +38,6 @@ func TestSetAndGet(t *testing.T) {
 		t.Fatalf("WriteCommand failed: %v", err)
 	}
 
-	// read SET response
 	resp, err := protocol.ReadResponse(conn)
 	if err != nil {
 		t.Fatalf("ReadResponse failed: %v", err)
@@ -43,7 +46,6 @@ func TestSetAndGet(t *testing.T) {
 		t.Fatalf("expected StatusOK got %v", resp.Status)
 	}
 
-	// send GET command
 	err = protocol.WriteCommand(conn, &protocol.Command{
 		ID:  protocol.CmdGet,
 		Key: "name",
@@ -52,7 +54,6 @@ func TestSetAndGet(t *testing.T) {
 		t.Fatalf("WriteCommand failed: %v", err)
 	}
 
-	// read GET response
 	resp, err = protocol.ReadResponse(conn)
 	if err != nil {
 		t.Fatalf("ReadResponse failed: %v", err)
@@ -66,13 +67,7 @@ func TestSetAndGet(t *testing.T) {
 }
 
 func TestGetMissingKey(t *testing.T) {
-	s := store.New()
-	srv := New(":0", s)
-
-	err := srv.Start()
-	if err != nil {
-		t.Fatalf("server failed to start: %v", err)
-	}
+	srv := newTestServer(t)
 	defer srv.Stop()
 
 	conn, err := net.Dial("tcp", srv.Addr())
@@ -81,7 +76,6 @@ func TestGetMissingKey(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// send GET for missing key
 	err = protocol.WriteCommand(conn, &protocol.Command{
 		ID:  protocol.CmdGet,
 		Key: "name",
@@ -90,25 +84,17 @@ func TestGetMissingKey(t *testing.T) {
 		t.Fatalf("WriteCommand failed: %v", err)
 	}
 
-	// read response
 	resp, err := protocol.ReadResponse(conn)
 	if err != nil {
 		t.Fatalf("ReadResponse failed: %v", err)
 	}
-
-	// key doesn't exist so must be StatusNull
 	if resp.Status != protocol.StatusNull {
 		t.Fatalf("expected StatusNull got %v", resp.Status)
 	}
 }
-func TestSetDelGet(t *testing.T) {
-	s := store.New()
-	srv := New(":0", s)
 
-	err := srv.Start()
-	if err != nil {
-		t.Fatalf("server failed to start: %v", err)
-	}
+func TestSetDelGet(t *testing.T) {
+	srv := newTestServer(t)
 	defer srv.Stop()
 
 	conn, err := net.Dial("tcp", srv.Addr())
@@ -117,7 +103,6 @@ func TestSetDelGet(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// send SET
 	err = protocol.WriteCommand(conn, &protocol.Command{
 		ID:    protocol.CmdSet,
 		Key:   "name",
@@ -134,7 +119,6 @@ func TestSetDelGet(t *testing.T) {
 		t.Fatalf("expected StatusOK got %v", resp.Status)
 	}
 
-	// send DEL
 	err = protocol.WriteCommand(conn, &protocol.Command{
 		ID:  protocol.CmdDel,
 		Key: "name",
@@ -150,7 +134,6 @@ func TestSetDelGet(t *testing.T) {
 		t.Fatalf("expected StatusOK got %v", resp.Status)
 	}
 
-	// send GET — should be nil now
 	err = protocol.WriteCommand(conn, &protocol.Command{
 		ID:  protocol.CmdGet,
 		Key: "name",
@@ -168,13 +151,7 @@ func TestSetDelGet(t *testing.T) {
 }
 
 func TestPing(t *testing.T) {
-	s := store.New()
-	srv := New(":0", s)
-
-	err := srv.Start()
-	if err != nil {
-		t.Fatalf("server failed to start: %v", err)
-	}
+	srv := newTestServer(t)
 	defer srv.Stop()
 
 	conn, err := net.Dial("tcp", srv.Addr())
@@ -183,7 +160,6 @@ func TestPing(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// send PING
 	err = protocol.WriteCommand(conn, &protocol.Command{
 		ID: protocol.CmdPing,
 	})
@@ -191,7 +167,6 @@ func TestPing(t *testing.T) {
 		t.Fatalf("WriteCommand failed: %v", err)
 	}
 
-	// read response
 	resp, err := protocol.ReadResponse(conn)
 	if err != nil {
 		t.Fatalf("ReadResponse failed: %v", err)
@@ -202,13 +177,7 @@ func TestPing(t *testing.T) {
 }
 
 func TestIncrNewKey(t *testing.T) {
-	s := store.New()
-	srv := New(":0", s)
-
-	err := srv.Start()
-	if err != nil {
-		t.Fatalf("server failed to start: %v", err)
-	}
+	srv := newTestServer(t)
 	defer srv.Stop()
 
 	conn, err := net.Dial("tcp", srv.Addr())
@@ -217,7 +186,6 @@ func TestIncrNewKey(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// send INCR on a key that doesn't exist yet
 	err = protocol.WriteCommand(conn, &protocol.Command{
 		ID:  protocol.CmdIncr,
 		Key: "counter",
@@ -226,7 +194,6 @@ func TestIncrNewKey(t *testing.T) {
 		t.Fatalf("WriteCommand failed: %v", err)
 	}
 
-	// read response
 	resp, err := protocol.ReadResponse(conn)
 	if err != nil {
 		t.Fatalf("ReadResponse failed: %v", err)

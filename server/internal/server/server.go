@@ -4,24 +4,27 @@ import (
 	"context"
 	"net"
 
+	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/store"
 )
 
 type Server struct {
-	addr   string
-	store  *store.Store
-	ln     net.Listener
-	ctx    context.Context
-	cancel context.CancelFunc
+	addr      string
+	store     *store.Store
+	aofWriter *aof.AOFWriter
+	ln        net.Listener
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
-func New(addr string, store *store.Store) *Server {
+func New(addr string, store *store.Store, aofWriter *aof.AOFWriter) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
-		addr:   addr,
-		store:  store,
-		ctx:    ctx,
-		cancel: cancel,
+		addr:      addr,
+		store:     store,
+		aofWriter: aofWriter,
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 }
 
