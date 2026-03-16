@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +14,9 @@ import (
 func main() {
 	// create the store
 	s := store.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.StartEviction(ctx)
 
 	// create the server
 	srv := server.New(":6379", s)
