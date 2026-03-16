@@ -56,3 +56,7 @@ func (s *Server) Stop() {
 		s.ln.Close()
 	}
 }
+
+func (s *Server) Addr() string {
+	return s.ln.Addr().String()
+}

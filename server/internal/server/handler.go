@@ -81,7 +81,7 @@ func (s *Server) executeCommand(cmd *protocol.Command) *protocol.Response {
 
 	case protocol.CmdPing:
 		resp := s.store.Ping()
-		return &protocol.Response{Status: protocol.StatusOK, Payload: []byte(resp)}
+		return &protocol.Response{Status: protocol.StatusValue, Payload: []byte(resp)}
 
 	default:
 		return &protocol.Response{Status: protocol.StatusError, Payload: []byte("unknown command")}
