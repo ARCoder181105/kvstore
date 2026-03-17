@@ -65,7 +65,7 @@ func (s *Server) executeCommand(cmd *protocol.Command) *protocol.Response {
 			})
 		}
 		if !ok {
-			return &protocol.Response{Status: protocol.StatusNull, Payload: []byte("0")}
+			return &protocol.Response{Status: protocol.StatusOK, Payload: []byte("0")}
 		}
 		return &protocol.Response{Status: protocol.StatusOK, Payload: []byte("1")}
 
