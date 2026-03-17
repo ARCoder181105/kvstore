@@ -33,7 +33,6 @@ func (s *Server) Start() error {
 	if err != nil {
 		return err
 	}
-
 	s.ln = ln
 
 	go func() {

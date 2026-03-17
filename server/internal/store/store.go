@@ -27,7 +27,8 @@ type Store struct {
 	ttlHeap  *TTLHeap
 	ttlIndex map[string]*TTLItem
 	events   chan Event
-	once     sync.Once // ensures background goroutines start exactly once
+	notify   chan struct{} // wakes the eviction goroutine when a TTL key is added
+	once     sync.Once
 }
 
 func New() *Store {
@@ -36,6 +37,7 @@ func New() *Store {
 		ttlHeap:  &TTLHeap{},
 		ttlIndex: make(map[string]*TTLItem),
 		events:   make(chan Event, 256),
+		notify:   make(chan struct{}, 1),
 	}
 	heap.Init(s.ttlHeap)
 	return s
@@ -54,21 +56,25 @@ func (s *Store) Set(key string, value []byte, ttlNs int64) {
 		ExpiresAt: expiresAt(ttlNs),
 	}
 
-	if ttlNs > 0 {
-
-		if old, ok := s.ttlIndex[key]; ok {
-			heap.Remove(s.ttlHeap, old.index)
-			delete(s.ttlIndex, key)
-		}
-
-		ttlElement := &TTLItem{
-			key:       key,
-			expiresAt: s.data[key].ExpiresAt,
-		}
-		heap.Push(s.ttlHeap, ttlElement)
-		s.ttlIndex[key] = ttlElement
+	// Always remove the old TTL entry first, regardless of whether
+	// the new call has a TTL. Without this, a key updated from TTL→no-TTL
+	// leaves a stale item in the heap that later evicts the key incorrectly.
+	if old, ok := s.ttlIndex[key]; ok {
+		heap.Remove(s.ttlHeap, old.index)
+		delete(s.ttlIndex, key)
 	}
-	// Non-blocking event emit — drop if buffer full
+
+	if ttlNs > 0 {
+		item := &TTLItem{key: key, expiresAt: s.data[key].ExpiresAt}
+		heap.Push(s.ttlHeap, item)
+		s.ttlIndex[key] = item
+		// Wake the eviction goroutine (non-blocking; it may already be awake)
+		select {
+		case s.notify <- struct{}{}:
+		default:
+		}
+	}
+
 	select {
 	case s.events <- Event{Type: EventSet, Key: key, Value: string(value)}:
 	default:
@@ -83,7 +89,6 @@ func expiresAt(ttlNs int64) int64 {
 }
 
 func (s *Store) Get(key string) ([]byte, bool) {
-
 	s.mu.RLock()
 	entry, ok := s.data[key]
 	s.mu.RUnlock()
@@ -92,9 +97,7 @@ func (s *Store) Get(key string) ([]byte, bool) {
 		return nil, false
 	}
 
-	// Lazy expiry check — do not hold the lock while checking
 	if entry.IsExpired() {
-		// As Entry is expired delete it
 		s.mu.Lock()
 		// Double-check: another goroutine may have deleted it already
 		if e, exists := s.data[key]; exists && e.IsExpired() {
@@ -112,7 +115,6 @@ func (s *Store) Get(key string) ([]byte, bool) {
 }
 
 func (s *Store) Delete(key string) bool {
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -136,53 +138,50 @@ func (s *Store) Delete(key string) bool {
 	return true
 }
 
+// TTL returns the remaining lifetime of a key in nanoseconds.
+// Returns -1 if the key has no expiry, -2 if the key does not exist.
 func (s *Store) TTL(key string) int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	entry, exist := s.data[key]
-
-	if !exist {
-		return -2 // Key doesn't Exist
+	entry, exists := s.data[key]
+	if !exists {
+		return -2
 	}
-
 	if entry.ExpiresAt == 0 {
-		return -1 // Key has no ttl
+		return -1
 	}
-
-	return entry.ExpiresAt - time.Now().UnixNano()
+	remaining := entry.ExpiresAt - time.Now().UnixNano()
+	if remaining <= 0 {
+		return -2 // expired but not yet evicted — treat as missing
+	}
+	return remaining
 }
 
 func (s *Store) Expire(key string, ttlNs int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	entry, exist := s.data[key]
-	if !exist {
+	entry, exists := s.data[key]
+	if !exists {
 		return false
 	}
 
 	entry.ExpiresAt = expiresAt(ttlNs)
 
-	// Update TTL heap/index if ttlNs > 0
+	// Always remove old TTL item first
+	if old, ok := s.ttlIndex[key]; ok {
+		heap.Remove(s.ttlHeap, old.index)
+		delete(s.ttlIndex, key)
+	}
+
 	if ttlNs > 0 {
-		if old, ok := s.ttlIndex[key]; ok {
-			heap.Remove(s.ttlHeap, old.index)
-			delete(s.ttlIndex, key)
-		}
-
-		ttlElement := &TTLItem{
-			key:       key,
-			expiresAt: entry.ExpiresAt,
-		}
-
-		heap.Push(s.ttlHeap, ttlElement)
-		s.ttlIndex[key] = ttlElement
-	} else {
-		// Remove from TTL heap/index if ttlNs == 0
-		if item, ok := s.ttlIndex[key]; ok {
-			heap.Remove(s.ttlHeap, item.index)
-			delete(s.ttlIndex, key)
+		item := &TTLItem{key: key, expiresAt: entry.ExpiresAt}
+		heap.Push(s.ttlHeap, item)
+		s.ttlIndex[key] = item
+		select {
+		case s.notify <- struct{}{}:
+		default:
 		}
 	}
 
@@ -195,24 +194,17 @@ func (s *Store) Expire(key string, ttlNs int64) bool {
 }
 
 func (s *Store) MGet(keys []string) [][]byte {
-
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var returnSet [][]byte
-
-	for _, key := range keys {
-		entry, exist := s.data[key]
-
-		if !exist || entry.IsExpired() {
-			returnSet = append(returnSet, nil)
-		} else {
-			returnSet = append(returnSet, entry.Value)
+	result := make([][]byte, len(keys))
+	for i, key := range keys {
+		entry, exists := s.data[key]
+		if exists && !entry.IsExpired() {
+			result[i] = entry.Value
 		}
-
 	}
-
-	return returnSet
+	return result
 }
 
 func (s *Store) MSet(entries map[string][]byte) {
@@ -220,17 +212,12 @@ func (s *Store) MSet(entries map[string][]byte) {
 	defer s.mu.Unlock()
 
 	for key, value := range entries {
-		s.data[key] = &Entry{
-			Value:     value,
-			ExpiresAt: 0, // no TTL on MSet
-		}
-
-		// if key had an old TTL, clean it up
+		// Remove old TTL entry if present
 		if old, ok := s.ttlIndex[key]; ok {
 			heap.Remove(s.ttlHeap, old.index)
 			delete(s.ttlIndex, key)
 		}
-
+		s.data[key] = &Entry{Value: value, ExpiresAt: 0}
 		select {
 		case s.events <- Event{Type: EventSet, Key: key, Value: string(value)}:
 		default:
@@ -244,9 +231,16 @@ func (s *Store) Incr(key string) (int64, error) {
 
 	entry, exists := s.data[key]
 
-	// if key doesn't exist, create it with value 1
-	if !exists {
-		s.data[key] = &Entry{Value: []byte("1")}
+	// treat an expired entry exactly like a missing key
+	if !exists || entry.IsExpired() {
+		if exists {
+			// clean up the stale entry
+			if item, ok := s.ttlIndex[key]; ok {
+				heap.Remove(s.ttlHeap, item.index)
+				delete(s.ttlIndex, key)
+			}
+		}
+		s.data[key] = &Entry{Value: []byte("1"), ExpiresAt: 0}
 		select {
 		case s.events <- Event{Type: EventSet, Key: key, Value: "1"}:
 		default:
@@ -254,13 +248,13 @@ func (s *Store) Incr(key string) (int64, error) {
 		return 1, nil
 	}
 
-	val, err := parseInt64(entry.Value)
+	val, err := strconv.ParseInt(string(entry.Value), 10, 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("value is not an integer")
 	}
 
 	val++
-	entry.Value = []byte(fmt.Sprintf("%d", val))
+	entry.Value = []byte(strconv.FormatInt(val, 10))
 
 	select {
 	case s.events <- Event{Type: EventSet, Key: key, Value: string(entry.Value)}:
@@ -270,60 +264,64 @@ func (s *Store) Incr(key string) (int64, error) {
 	return val, nil
 }
 
-func parseInt64(val []byte) (int64, error) {
-	return strconv.ParseInt(string(val), 10, 64)
-}
-
+// Keys returns all non-expired keys matching the glob pattern.
+// snapshot keys under a short read lock, then pattern-match outside
+// the lock to avoid holding it for O(n) time under write contention.
 func (s *Store) Keys(pattern string) []string {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	keys := []string{}
-
+	candidates := make([]string, 0, len(s.data))
 	for key, entry := range s.data {
-		// skip expired keys
-		if entry.IsExpired() {
-			continue
+		if !entry.IsExpired() {
+			candidates = append(candidates, key)
 		}
+	}
+	s.mu.RUnlock()
 
-		// check if key matches the pattern
+	keys := make([]string, 0, len(candidates))
+	for _, key := range candidates {
 		matched, err := filepath.Match(pattern, key)
 		if err != nil {
-			continue // invalid pattern, skip
+			continue
 		}
-
 		if matched {
 			keys = append(keys, key)
 		}
 	}
-
 	return keys
 }
 
+// Snapshot returns a copy of the current store map for snapshotting.
 func (s *Store) Snapshot() map[string]*Entry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// make a copy — don't hand out the live map
-	copy := make(map[string]*Entry, len(s.data))
+	snap := make(map[string]*Entry, len(s.data))
 	for k, v := range s.data {
-		copy[k] = v
+		// Only include non-expired keys
+		if !v.IsExpired() {
+			snap[k] = v
+		}
 	}
-	return copy
+	return snap
 }
 
+// SetRaw inserts an entry directly (used by snapshot/AOF restore).
+// It does NOT emit events or touch the AOF.
 func (s *Store) SetRaw(key string, entry *Entry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Remove any existing TTL tracking for this key
+	if old, ok := s.ttlIndex[key]; ok {
+		heap.Remove(s.ttlHeap, old.index)
+		delete(s.ttlIndex, key)
+	}
+
 	s.data[key] = entry
 
-	// rebuild TTL heap entry if key has expiry
 	if entry.ExpiresAt > 0 {
-		ttlElement := &TTLItem{
-			key:       key,
-			expiresAt: entry.ExpiresAt,
-		}
-		heap.Push(s.ttlHeap, ttlElement)
-		s.ttlIndex[key] = ttlElement
+		item := &TTLItem{key: key, expiresAt: entry.ExpiresAt}
+		heap.Push(s.ttlHeap, item)
+		s.ttlIndex[key] = item
 	}
 }

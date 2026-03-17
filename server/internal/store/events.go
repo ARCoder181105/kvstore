@@ -4,7 +4,6 @@ import "time"
 
 type EventType string
 
-// To record or logging the operation
 type Event struct {
 	Type      EventType
 	Key       string
@@ -17,5 +16,5 @@ const (
 	EventSet     EventType = "SET"
 	EventDel     EventType = "DEL"
 	EventExpire  EventType = "EXPIRE"
-	EventExpired EventType = "EXPIRED" // fired by TTL eviction
+	EventExpired EventType = "EXPIRED"
 )
