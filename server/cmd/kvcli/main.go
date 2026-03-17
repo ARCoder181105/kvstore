@@ -71,10 +71,19 @@ func buildCommand(args []string) (*protocol.Command, error) {
 		if len(args) < 3 {
 			return nil, fmt.Errorf("SET requires a key and value")
 		}
+		var ttl int64
+		if len(args) == 4 {
+			seconds, err := strconv.ParseInt(args[3], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid TTL: %v", err)
+			}
+			ttl = seconds * int64(time.Second)
+		}
 		return &protocol.Command{
 			ID:    protocol.CmdSet,
 			Key:   args[1],
 			Value: []byte(args[2]),
+			TTL:   ttl,
 		}, nil
 
 	case "DEL":
@@ -123,7 +132,13 @@ func buildCommand(args []string) (*protocol.Command, error) {
 func printResponse(resp *protocol.Response) {
 	switch resp.Status {
 	case protocol.StatusOK:
-		fmt.Println("OK")
+		if string(resp.Payload) == "0" {
+			fmt.Println("(not found)")
+		} else if string(resp.Payload) == "1" {
+			fmt.Println("OK")
+		} else {
+			fmt.Println("OK")
+		}
 	case protocol.StatusValue:
 		fmt.Println(string(resp.Payload))
 	case protocol.StatusNull:

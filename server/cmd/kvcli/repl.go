@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ARCoder181105/kvstore/internal/protocol"
 	"github.com/chzyer/readline"
 )
 
@@ -18,7 +17,8 @@ func startREPL(host string, port int) {
 	defer conn.Close()
 
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt: "kvstore> ",
+		Prompt:      "kvstore> ",
+		HistoryFile: "/tmp/kvstore_history",
 	})
 	if err != nil {
 		fmt.Println("Cannot Initialize Repel error:", err)
@@ -51,24 +51,9 @@ func startREPL(host string, port int) {
 			continue
 		}
 
-		proCmd, err := buildCommand(tokens)
-		if err != nil {
-			fmt.Println("Failed to Build Command in REPL: ", err)
-			continue
+		if err := runCommandREPL(conn, tokens); err != nil {
+			fmt.Println("Error:", err)
+			return // connection broken
 		}
-
-		err = protocol.WriteCommand(conn, proCmd)
-		if err != nil {
-			fmt.Println("Failed to Write Command in REPL: ", err)
-			return
-		}
-
-		resp, err := protocol.ReadResponse(conn)
-		if err != nil {
-			fmt.Print("Error in reading the response in REPL: ", err)
-			return
-		}
-
-		printResponse(resp)
 	}
 }

@@ -86,7 +86,14 @@ func (s *Server) executeCommand(cmd *protocol.Command) *protocol.Response {
 
 	case protocol.CmdTTL:
 		ttl := s.store.TTL(cmd.Key)
-		return &protocol.Response{Status: protocol.StatusInt, Payload: []byte(strconv.FormatInt(ttl, 10))}
+		if ttl > 0 {
+			ttl = ttl / int64(time.Second)
+		}
+		// -1 and -2 pass through unchanged
+		return &protocol.Response{
+			Status:  protocol.StatusInt,
+			Payload: []byte(strconv.FormatInt(ttl, 10)),
+		}
 
 	case protocol.CmdKeys:
 		keys := s.store.Keys(cmd.Key)
