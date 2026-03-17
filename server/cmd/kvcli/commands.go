@@ -3,13 +3,14 @@ package main
 import (
 	"fmt"
 	"net"
+	"strconv"
 
 	"github.com/ARCoder181105/kvstore/internal/protocol"
 	"github.com/spf13/cobra"
 )
 
 func connect(host string, port int) (net.Conn, error) {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	return net.Dial("tcp", addr)
 }
 
