@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,45 +9,49 @@ import (
 	"github.com/ARCoder181105/kvstore/internal/protocol"
 )
 
+// func main() {
+// 	// check args
+// 	if len(os.Args) < 2 {
+// 		fmt.Println("usage: kvcli <command> [args]")
+// 		fmt.Println("commands: SET, GET, DEL, PING, KEYS, TTL, INCR, EXPIRE")
+// 		os.Exit(1)
+// 	}
+
+// 	// connect to server
+// 	conn, err := net.Dial("tcp", ":6379")
+// 	if err != nil {
+// 		fmt.Println("failed to connect to server:", err)
+// 		os.Exit(1)
+// 	}
+// 	defer conn.Close()
+
+// 	// build command from args
+// 	cmd, err := buildCommand(os.Args[1:])
+// 	if err != nil {
+// 		fmt.Println("error:", err)
+// 		os.Exit(1)
+// 	}
+
+// 	// send command
+// 	err = protocol.WriteCommand(conn, cmd)
+// 	if err != nil {
+// 		fmt.Println("failed to send command:", err)
+// 		os.Exit(1)
+// 	}
+
+// 	// read response
+// 	resp, err := protocol.ReadResponse(conn)
+// 	if err != nil {
+// 		fmt.Println("failed to read response:", err)
+// 		os.Exit(1)
+// 	}
+
+// 	// print response
+// 	printResponse(resp)
+// }
+
 func main() {
-	// check args
-	if len(os.Args) < 2 {
-		fmt.Println("usage: kvcli <command> [args]")
-		fmt.Println("commands: SET, GET, DEL, PING, KEYS, TTL, INCR, EXPIRE")
-		os.Exit(1)
-	}
-
-	// connect to server
-	conn, err := net.Dial("tcp", ":6379")
-	if err != nil {
-		fmt.Println("failed to connect to server:", err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-
-	// build command from args
-	cmd, err := buildCommand(os.Args[1:])
-	if err != nil {
-		fmt.Println("error:", err)
-		os.Exit(1)
-	}
-
-	// send command
-	err = protocol.WriteCommand(conn, cmd)
-	if err != nil {
-		fmt.Println("failed to send command:", err)
-		os.Exit(1)
-	}
-
-	// read response
-	resp, err := protocol.ReadResponse(conn)
-	if err != nil {
-		fmt.Println("failed to read response:", err)
-		os.Exit(1)
-	}
-
-	// print response
-	printResponse(resp)
+	Execute()
 }
 
 func buildCommand(args []string) (*protocol.Command, error) {
