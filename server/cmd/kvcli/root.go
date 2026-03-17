@@ -9,8 +9,9 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "kvcli",
 	Short: "A CLI client for kvstore",
+	Long:  "kvcli — interactive REPL and single-command client for the kvstore TCP server.",
 	Run: func(cmd *cobra.Command, args []string) {
-		// when no subcommand is given, start the REPL
+		// No subcommand given → start the REPL
 		host, _ := cmd.Flags().GetString("host")
 		port, _ := cmd.Flags().GetInt("port")
 		startREPL(host, port)
@@ -18,8 +19,7 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }

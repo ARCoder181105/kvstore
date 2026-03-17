@@ -12,29 +12,34 @@ import (
 	"github.com/ARCoder181105/kvstore/internal/store"
 )
 
-// this is a appen-only-file
-// that is used create logs of operation on the redis database for persistance
-
-// Must write to AOF — these change data:
-
-// SET — creates or updates a key
-// DEL — removes a key
-// EXPIRE — changes a key's TTL
-// INCR — changes a key's value
-// MSET — creates or updates multiple keys
-
-type AOFEntry struct { // timeStamp | CmdID | Key | Value | TTL
+// AOFEntry is written to the append-only log for every mutation.
+//
+// The field is now ExpiresAt (absolute Unix nanoseconds), NOT a TTL
+// duration. This means Replay can call store.SetRaw with the original
+// deadline rather than re-computing it relative to the replay time, which
+// would give keys an unintended extra lease after a crash.
+//
+// Wire format (binary, big-endian):
+//
+//	[8] Timestamp  int64   — wall clock when the command was received
+//	[1] CmdID      byte    — protocol.CmdSet / CmdDel / CmdExpire
+//	[4] KeyLen     uint32
+//	[N] Key        bytes
+//	[4] ValueLen   uint32
+//	[M] Value      bytes
+//	[8] ExpiresAt  int64   — absolute Unix nanoseconds; 0 = no expiry
+type AOFEntry struct {
 	Timestamp int64
 	CmdID     byte
 	Key       string
 	Value     []byte
-	TTL       int64
+	ExpiresAt int64 // absolute, NOT a duration
 }
 
 type AOFWriter struct {
-	file   *os.File
-	ch     chan AOFEntry
-	ticker *time.Ticker
+	file       *os.File
+	ch         chan AOFEntry
+	syncTicker *time.Ticker
 }
 
 func NewAOFWriter(path string) (*AOFWriter, error) {
@@ -42,120 +47,132 @@ func NewAOFWriter(path string) (*AOFWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return &AOFWriter{
-		file:   file,
-		ch:     make(chan AOFEntry, 1024),
-		ticker: time.NewTicker(1 * time.Second),
+		file:       file,
+		ch:         make(chan AOFEntry, 1024),
+		syncTicker: time.NewTicker(time.Second),
 	}, nil
 }
 
 func (a *AOFWriter) Start(ctx context.Context) {
-
 	for {
 		select {
 		case entry := <-a.ch:
 			if err := a.writeEntry(entry); err != nil {
 				fmt.Printf("AOF write error: %v\n", err)
 			}
-		case <-a.ticker.C:
+		case <-a.syncTicker.C:
 			a.file.Sync()
 		case <-ctx.Done():
-			a.file.Sync()
-			a.file.Close()
-			return
+			// Drain remaining entries before closing
+			for {
+				select {
+				case entry := <-a.ch:
+					a.writeEntry(entry)
+				default:
+					a.file.Sync()
+					a.file.Close()
+					return
+				}
+			}
 		}
 	}
-
 }
 
+// Append queues an AOF entry for async writing.
+// Non-blocking: drops the entry if the buffer is full (at most 1024 ops at risk).
 func (a *AOFWriter) Append(entry AOFEntry) {
 	select {
 	case a.ch <- entry:
 	default:
-		// Buffer full — entry dropped. At most 1024 ops at risk on crash.
-		// Acceptable for this project. In production, you'd block or alert.
 	}
 }
 
+// Replay reads the AOF log and restores its entries into the store.
+//
+// Uses store.SetRaw for SET entries, passing the stored absolute
+// ExpiresAt directly — no call to expiresAt(duration) which would shift
+// the deadline forward by the replay wall-clock time.
+// DEL and EXPIRE entries are applied via the normal store methods.
 func Replay(path string, s *store.Store) error {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // no AOF log yet, that's fine on first startup
+			return nil
 		}
 		return err
 	}
 	defer file.Close()
 
-	buff := make([]byte, 8)
+	buf8 := make([]byte, 8)
+	buf4 := make([]byte, 4)
+	buf1 := make([]byte, 1)
 
 	for {
-		entry := &AOFEntry{}
-
-		// timeStamp
-		_, err := io.ReadFull(file, buff)
-		if err == io.EOF {
+		// Timestamp (8 bytes) — read but not used for anything currently
+		if _, err := io.ReadFull(file, buf8); err == io.EOF {
 			break
+		} else if err != nil {
+			return fmt.Errorf("AOF replay: reading timestamp: %w", err)
 		}
-		if err != nil {
-			return err
-		}
-		// entry.Timestamp = int64(binary.BigEndian.Uint64(buff))
+		// (timestamp not used — just consumed)
 
-		// Cmd
-		_, err = io.ReadFull(file, buff[:1])
-		if err != nil {
-			return err
+		// CmdID (1 byte)
+		if _, err := io.ReadFull(file, buf1); err != nil {
+			return fmt.Errorf("AOF replay: reading cmdID: %w", err)
 		}
-		entry.CmdID = buff[0]
+		cmdID := buf1[0]
 
-		//keyLen
-		_, err = io.ReadFull(file, buff[:4])
-		if err != nil {
-			return err
+		// KeyLen (4 bytes)
+		if _, err := io.ReadFull(file, buf4); err != nil {
+			return fmt.Errorf("AOF replay: reading key len: %w", err)
 		}
-		keyLen := binary.BigEndian.Uint32(buff[:4])
+		keyLen := binary.BigEndian.Uint32(buf4)
 
 		// Key
 		keyBuf := make([]byte, keyLen)
-		_, err = io.ReadFull(file, keyBuf)
-		if err != nil {
-			return err
+		if _, err := io.ReadFull(file, keyBuf); err != nil {
+			return fmt.Errorf("AOF replay: reading key: %w", err)
 		}
-		entry.Key = string(keyBuf)
+		key := string(keyBuf)
 
-		// valueLen
-		_, err = io.ReadFull(file, buff[:4])
-		if err != nil {
-			return err
+		// ValueLen (4 bytes)
+		if _, err := io.ReadFull(file, buf4); err != nil {
+			return fmt.Errorf("AOF replay: reading value len: %w", err)
 		}
-		valueLen := binary.BigEndian.Uint32(buff[:4])
+		valueLen := binary.BigEndian.Uint32(buf4)
 
 		// Value
 		value := make([]byte, valueLen)
-		_, err = io.ReadFull(file, value)
-		if err != nil {
-			return err
+		if _, err := io.ReadFull(file, value); err != nil {
+			return fmt.Errorf("AOF replay: reading value: %w", err)
 		}
-		entry.Value = value
 
-		// TTL
-		_, err = io.ReadFull(file, buff)
-		if err != nil {
-			return err
+		// ExpiresAt (8 bytes) — absolute Unix nanoseconds
+		if _, err := io.ReadFull(file, buf8); err != nil {
+			return fmt.Errorf("AOF replay: reading expiresAt: %w", err)
 		}
-		entry.TTL = int64(binary.BigEndian.Uint64(buff))
+		expiresAt := int64(binary.BigEndian.Uint64(buf8))
 
-		switch entry.CmdID {
+		// Apply entry to store
+		switch cmdID {
 		case protocol.CmdSet:
-			s.Set(entry.Key, entry.Value, entry.TTL)
+			// Use SetRaw with the stored absolute ExpiresAt.
+			// This avoids re-adding to time.Now(), which was the core TTL replay bug.
+			s.SetRaw(key, &store.Entry{Value: value, ExpiresAt: expiresAt})
+
 		case protocol.CmdDel:
-			s.Delete(entry.Key)
+			s.Delete(key)
+
 		case protocol.CmdExpire:
-			s.Expire(entry.Key, entry.TTL)
-		case protocol.CmdIncr:
-			s.Incr(entry.Key)
+			// ExpiresAt is absolute. Calculate remaining nanoseconds and call Expire
+			// only if the key hasn't already expired; otherwise delete it.
+			remaining := expiresAt - time.Now().UnixNano()
+			if remaining <= 0 {
+				s.Delete(key) // already past deadline
+			} else {
+				s.Expire(key, remaining)
+			}
 		}
 	}
 
@@ -163,37 +180,43 @@ func Replay(path string, s *store.Store) error {
 }
 
 func (a *AOFWriter) writeEntry(entry AOFEntry) error {
-	buf := make([]byte, 8)
+	buf8 := make([]byte, 8)
+	buf4 := make([]byte, 4)
 
-	binary.BigEndian.PutUint64(buf, uint64(entry.Timestamp))
-	if _, err := a.file.Write(buf); err != nil {
+	// Timestamp
+	binary.BigEndian.PutUint64(buf8, uint64(entry.Timestamp))
+	if _, err := a.file.Write(buf8); err != nil {
 		return err
 	}
 
+	// CmdID
 	if _, err := a.file.Write([]byte{entry.CmdID}); err != nil {
 		return err
 	}
 
-	binary.BigEndian.PutUint32(buf[:4], uint32(len(entry.Key)))
-	if _, err := a.file.Write(buf[:4]); err != nil {
+	// KeyLen + Key
+	binary.BigEndian.PutUint32(buf4, uint32(len(entry.Key)))
+	if _, err := a.file.Write(buf4); err != nil {
 		return err
 	}
-
 	if _, err := a.file.Write([]byte(entry.Key)); err != nil {
 		return err
 	}
 
-	binary.BigEndian.PutUint32(buf[:4], uint32(len(entry.Value)))
-	if _, err := a.file.Write(buf[:4]); err != nil {
+	// ValueLen + Value
+	binary.BigEndian.PutUint32(buf4, uint32(len(entry.Value)))
+	if _, err := a.file.Write(buf4); err != nil {
 		return err
 	}
-
-	if _, err := a.file.Write(entry.Value); err != nil {
-		return err
+	if len(entry.Value) > 0 {
+		if _, err := a.file.Write(entry.Value); err != nil {
+			return err
+		}
 	}
 
-	binary.BigEndian.PutUint64(buf, uint64(entry.TTL))
-	if _, err := a.file.Write(buf); err != nil {
+	// ExpiresAt (absolute)
+	binary.BigEndian.PutUint64(buf8, uint64(entry.ExpiresAt))
+	if _, err := a.file.Write(buf8); err != nil {
 		return err
 	}
 

@@ -17,25 +17,31 @@ func main() {
 		fmt.Println("failed to create data directory:", err)
 		os.Exit(1)
 	}
-	// create the store
-	s := store.New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go s.StartEviction(ctx)
 
-	// load snapshot first
+	s := store.New()
+
+	// Restore all data BEFORE starting the eviction goroutine.
+	// Previously, StartEviction launched first and could race-evict keys
+	// with short remaining TTLs that were being loaded from disk.
+
+	// 1. Load snapshot (absolute ExpiresAt — no time math required)
 	if err := aof.Load("./data/snapshot.db", s); err != nil {
 		fmt.Println("snapshot load error:", err)
 		os.Exit(1)
 	}
 
-	// replay AOF on top
+	// 2. Replay AOF on top of snapshot (also uses absolute ExpiresAt now)
 	if err := aof.Replay("./data/aof.log", s); err != nil {
 		fmt.Println("AOF replay error:", err)
 		os.Exit(1)
 	}
 
-	// start AOF writer
+	// 3. NOW it is safe to start background eviction
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.StartEviction(ctx)
+
+	// 4. Start AOF writer
 	aofWriter, err := aof.NewAOFWriter("./data/aof.log")
 	if err != nil {
 		fmt.Println("failed to create AOF writer:", err)
@@ -43,27 +49,24 @@ func main() {
 	}
 	go aofWriter.Start(ctx)
 
-	// create the server
+	// 5. Start TCP server
 	srv := server.New(":6379", s, aofWriter)
-
-	// start the server
-	err = srv.Start()
-	if err != nil {
+	if err := srv.Start(); err != nil {
 		fmt.Println("failed to start server:", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("server listening on :6379")
+	fmt.Println("kvstore listening on :6379")
 
-	// block until Ctrl+C
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit // blocks here, waiting for signal
+	<-quit
 
 	fmt.Println("shutting down...")
 	srv.Stop()
+	cancel() // stops eviction + AOF goroutines
 
-	// save snapshot on clean shutdown
+	// Save final snapshot on clean shutdown
 	if err := aof.Save(s, "./data/snapshot.db"); err != nil {
 		fmt.Println("snapshot save error:", err)
 	}
