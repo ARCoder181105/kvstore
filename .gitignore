@@ -1,0 +1,34 @@
+# Binaries
+server/cmd/server/server
+server/cmd/kvcli/kvcli
+*.exe
+*.out
+
+# Data files — AOF log and snapshots should not be committed
+server/data/
+data/
+
+# Go build cache
+*.test
+*.prof
+
+# Go module download cache
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Next.js
+web/.next/
+web/node_modules/
+web/.env.local
+
+# Logs
+*.log

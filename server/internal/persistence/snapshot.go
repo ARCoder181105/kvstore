@@ -3,6 +3,7 @@ package aof
 import (
 	"encoding/gob"
 	"os"
+	"time"
 
 	"github.com/ARCoder181105/kvstore/internal/store"
 )
@@ -57,6 +58,9 @@ func Load(path string, s *store.Store) error {
 	}
 
 	for k, v := range data {
+		if v.ExpiresAt > 0 && v.ExpiresAt <= time.Now().UnixNano() {
+			continue // skip already expired keys
+		}
 		s.SetRaw(k, v)
 	}
 

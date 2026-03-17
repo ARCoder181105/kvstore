@@ -316,4 +316,14 @@ func (s *Store) SetRaw(key string, entry *Entry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.data[key] = entry
+
+	// rebuild TTL heap entry if key has expiry
+	if entry.ExpiresAt > 0 {
+		ttlElement := &TTLItem{
+			key:       key,
+			expiresAt: entry.ExpiresAt,
+		}
+		heap.Push(s.ttlHeap, ttlElement)
+		s.ttlIndex[key] = ttlElement
+	}
 }
