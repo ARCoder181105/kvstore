@@ -288,6 +288,19 @@ func (s *Store) Keys(pattern string) []string {
 	return keys
 }
 
+func (s *Store) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, entry := range s.data {
+		if !entry.IsExpired() {
+			count++
+		}
+	}
+	return count
+}
+
 // Snapshot returns a copy of the current store map for snapshotting.
 func (s *Store) Snapshot() map[string]*Entry {
 	s.mu.RLock()
