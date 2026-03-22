@@ -119,6 +119,7 @@ func (s *Store) Delete(key string) bool {
 
 	_, exists := s.data[key]
 	if !exists {
+		s.mu.Unlock()
 		return false
 	}
 
@@ -343,7 +344,7 @@ func (s *Store) Unsubscribe(ch chan Event) {
 			break
 		}
 	}
-	
+
 	s.subMu.Unlock()
 	close(ch)
 }

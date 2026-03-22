@@ -75,6 +75,10 @@ func TestSetOverwriteClearsTTL(t *testing.T) {
 	// Wait longer than the original TTL
 	time.Sleep(300 * time.Millisecond)
 
+	// give eviction goroutine time to notice cancellation
+	cancel()
+	time.Sleep(10 * time.Millisecond)
+
 	val, ok := s.Get("k")
 	if !ok {
 		t.Fatal("key was evicted even though TTL was cleared — heap corruption bug")
@@ -183,7 +187,11 @@ func TestUnsubscribeStopsEvents(t *testing.T) {
 	s.Set("name", []byte("Alice"), 0)
 
 	select {
-	case event := <-ch:
+	case event, ok := <-ch:
+		if !ok {
+			// channel was closed, this is expected — test passes
+			return
+		}
 		t.Fatalf("expected no event after unsubscribe, but received: key=%s value=%s type=%s", event.Key, event.Value, event.Type)
 	case <-time.After(100 * time.Millisecond):
 	}
