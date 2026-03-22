@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/ARCoder181105/kvstore/internal/api"
 	aof "github.com/ARCoder181105/kvstore/internal/persistence"
@@ -71,6 +72,11 @@ func main() {
 
 	fmt.Println("shutting down...")
 	srv.Stop()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	apiSrv.Stop(shutdownCtx)
+
 	cancel() // stops eviction + AOF goroutines
 
 	// Save final snapshot on clean shutdown

@@ -78,7 +78,7 @@ func (s *Store) Set(key string, value []byte, ttlNs int64) {
 	}
 
 	s.mu.Unlock()
-	s.publish(Event{Type: EventSet, Key: key, Value: string(value)})
+	s.publish(Event{Type: EventSet, Key: key, Value: string(value), Timestamp: time.Now().UTC()})
 }
 
 func expiresAt(ttlNs int64) int64 {
@@ -132,7 +132,7 @@ func (s *Store) Delete(key string) bool {
 
 	s.mu.Unlock()
 
-	s.publish(Event{Type: EventDel, Key: key})
+	s.publish(Event{Type: EventDel, Key: key, Timestamp: time.Now().UTC()})
 
 	return true
 }
@@ -184,7 +184,7 @@ func (s *Store) Expire(key string, ttlNs int64) bool {
 	}
 
 	s.mu.Unlock()
-	s.publish(Event{Type: EventExpire, Key: key, TTL: ttlNs})
+	s.publish(Event{Type: EventExpire, Key: key, TTL: ttlNs, Timestamp: time.Now().UTC()})
 
 	return true
 }
@@ -216,7 +216,7 @@ func (s *Store) MSet(entries map[string][]byte) {
 		}
 		s.data[key] = &Entry{Value: value, ExpiresAt: 0}
 
-		events = append(events, Event{Type: EventSet, Key: key, Value: string(value)})
+		events = append(events, Event{Type: EventSet, Key: key, Value: string(value), Timestamp: time.Now().UTC()})
 	}
 	s.mu.Unlock()
 
@@ -242,7 +242,7 @@ func (s *Store) Incr(key string) (int64, error) {
 		s.data[key] = &Entry{Value: []byte("1"), ExpiresAt: 0}
 
 		s.mu.Unlock()
-		s.publish(Event{Type: EventSet, Key: key, Value: "1"})
+		s.publish(Event{Type: EventSet, Key: key, Value: "1", Timestamp: time.Now().UTC()})
 
 		return 1, nil
 	}
@@ -258,7 +258,7 @@ func (s *Store) Incr(key string) (int64, error) {
 	valStr := string(entry.Value)
 
 	s.mu.Unlock()
-	s.publish(Event{Type: EventSet, Key: key, Value: valStr})
+	s.publish(Event{Type: EventSet, Key: key, Value: valStr, Timestamp: time.Now().UTC()})
 	return val, nil
 }
 

@@ -91,12 +91,11 @@ func (s *Store) StartEviction(ctx context.Context) {
 			delete(s.data, item.key)
 			delete(s.ttlIndex, item.key)
 
-			// s.publish(Event{Type: EventExpired, Key: item.key})
 			expired = append(expired, item.key)
 		}
 		s.mu.Unlock()
 		for _, key := range expired {
-			s.publish(Event{Type: EventExpired, Key: key})
+			s.publish(Event{Type: EventExpired, Key: key, Timestamp: time.Now().UTC()})
 		}
 	}
 }
