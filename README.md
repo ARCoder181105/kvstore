@@ -1,19 +1,24 @@
-# ⚡ KVStore — Build Your Own Redis
+# ⚡ KVStore
 
-> A production-grade distributed key-value store built from scratch in Go, with a Next.js dashboard, CLI client, and Raft consensus clustering.
+> A production-grade distributed key-value store built in Go, featuring a high-performance core engine, persistence mechanisms, a Next.js real-time dashboard, and Raft consensus clustering.
 
----
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Status](https://img.shields.io/badge/status-under%20development-orange)
 
-```
+## 📌 System Architecture
+
+KVStore is a complete, multi-layer database system built from scratch, utilizing the same concepts that power industry standards like Redis, etcd, and CockroachDB.
+
+```text
 ┌─────────────────────────────────────────────────────────────┐
-│                    YOUR COMPLETE SYSTEM                      │
+│                    YOUR COMPLETE SYSTEM                     │
 │                                                             │
 │   Browser Dashboard (Next.js 15)                            │
-│          │  HTTP + WebSocket                                 │
+│          │  HTTP + WebSocket                                │
 │   HTTP API Server (:8080)                                   │
 │          │                                                  │
 │   CLI Client  (./kvcli)                                     │
-│          │  TCP Binary Protocol                              │
+│          │  TCP Binary Protocol                             │
 │   TCP Server (:6379)                                        │
 │          │                                                  │
 │   ┌──────▼──────────────────────────────────┐               │
@@ -33,67 +38,60 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
----
+## ✨ Features
 
-## What You Are Building
+- **Blazing Fast In-Memory Storage**: Concurrent hash maps protected by `sync.RWMutex` for zero data-races and massive throughput.
+- **TTL & Expiry**: Native support for expiring keys using an efficient min-heap implementation.
+- **Binary TCP Protocol**: Custom binary protocol server running on `:6379` for ultra-low latency CLI and application clients.
+- **REST & WebSocket API**: Built-in HTTP server (`:8080`) providing a RESTful API and real-time event streaming for UI integrations.
+- **Data Persistence**: Robust Append-Only File (AOF) logging ensuring zero data loss upon crashes or restarts.
+- **Distributed Consensus (Raft)**: Highly available clustering supporting automatic leader election and log replication.
+- **Real-time Dashboard**: A stunning, dark-terminal aesthetic Next.js 15 frontend to monitor metrics, stream events, and manage keys live.
 
-A complete, multi-layer database system — the same concepts that power Redis, etcd, and CockroachDB — built entirely by you.
+## 🛠️ Technology Stack
 
-| Layer | Technology | What You Learn |
-|-------|-----------|----------------|
-| Core Engine | Go | Concurrency, data structures, memory layout |
-| TCP Server | Go `net` package | Binary protocols, connection pooling, goroutines |
-| Persistence | Go `os`, `encoding/gob` | AOF logs, atomic file writes, crash recovery |
-| CLI Client | Go + `cobra` | Protocol design, terminal UX, REPL |
-| HTTP API | Go `chi` router | REST design, WebSocket, middleware |
-| Web Dashboard | Next.js 15, TypeScript | App Router, real-time UI, Tanstack Query |
-| Clustering | Go + Raft | Distributed consensus, leader election, quorum |
+| Component | Technology | Description |
+|-----------|-----------|----------------|
+| **Core Engine** | Go | Concurrency, custom data structures, memory layout |
+| **TCP Server** | Go `net` package | Binary protocols, connection pooling, goroutines |
+| **Persistence** | Go `os`, `encoding/gob` | AOF logs, atomic file writes, crash recovery |
+| **CLI Client** | Go + `cobra` | Protocol design, terminal UX, REPL |
+| **HTTP API** | Go `chi` router | REST design, WebSocket routing, middleware |
+| **Web Dashboard** | Next.js 15, TypeScript | App Router, React 19, pure server-side rendering |
+| **UI Components** | Tailwind v4, shadcn/ui | Premium, high data-density "terminal" aesthetics |
+| **State Management** | Tanstack Query | Optimized client-side data fetching and cache invalidation |
+| **Clustering** | Go + Raft | Distributed consensus, leader election, quorum |
 
----
+## 🚀 Getting Started
 
-## Quick Navigation
+To run the full stack locally:
 
-| Document | Description |
-|----------|-------------|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Full system design — every layer explained with diagrams |
-| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Phase-by-phase build order with exact tasks per phase |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Week-by-week timeline, milestones, and success criteria |
-| [`docs/TECH_STACK.md`](docs/TECH_STACK.md) | Every library and tool — what it is and why it was chosen |
-| [`docs/FILE_STRUCTURE.md`](docs/FILE_STRUCTURE.md) | Complete file tree for Go backend and Next.js frontend |
-| [`docs/PROTOCOLS.md`](docs/PROTOCOLS.md) | Binary TCP protocol spec + HTTP API + WebSocket contracts |
-| [`docs/DATA_STRUCTURES.md`](docs/DATA_STRUCTURES.md) | Every struct, algorithm, and concurrency pattern |
-| [`docs/RAFT.md`](docs/RAFT.md) | Raft consensus deep-dive and step-by-step implementation |
-| [`docs/FRONTEND.md`](docs/FRONTEND.md) | Next.js dashboard — pages, components, hooks, real-time |
-| [`docs/RESOURCES.md`](docs/RESOURCES.md) | Books, papers, videos, and references for every phase |
-
----
-
-## Success Milestones
-
-```
-Phase 1 done:  go test -race passes — 100k ops, zero data races
-Phase 2 done:  TCP client sends binary frame → server replies correctly
-Phase 3 done:  Kill server → restart → all keys restored from AOF log
-Phase 4 done:  ./kvcli REPL — kvstore> SET name Alice → OK
-Phase 5 done:  HTTP API returns correct JSON for every endpoint
-Phase 6 done:  Dashboard shows live key table + real-time event stream
-Phase 7 done:  Kill Raft leader → new leader elected in under 3 seconds
-Phase 8 done:  Benchmark confirms > 100k ops/sec on a single node
+### 1. Start the Backend Server
+```bash
+cd server
+go run cmd/server/main.go
+# Starts the TCP server on :6379 and HTTP API on :8080
 ```
 
----
+### 2. Start the CLI Client
+```bash
+# In a new terminal
+cd cli
+go run main.go
+# Example: kvstore> SET mykey 123
+```
 
-## The Demo You Will Show
+### 3. Start the Next.js Dashboard
+```bash
+# In a new terminal
+cd web
+npm install
+npm run dev
+# Open http://localhost:3000 in your browser
+```
 
-1. Open the browser dashboard
-2. Type a key-value pair into the UI — it appears in the live event stream instantly
-3. Open terminal, run `./kvcli GET yourkey` — it is there
-4. Kill the server with `Ctrl+C`
-5. Restart it — every key comes back from the AOF log
-6. Start 3 nodes, kill the leader — a new one is elected in under 3 seconds
+## 🏗️ Project Status
 
-Every single line of that system is code you wrote.
+**🚧 This project is currently under active development. 🚧**
 
----
-
-*Golang Deep-Dive Series — Project 01 of 05*
+KVStore is an evolving system. New updates, performance improvements, and critical features (like advanced Raft node management and automated snapshotting) are coming soon! Stay tuned.
