@@ -301,6 +301,34 @@ func (s *Store) Count() int {
 	return count
 }
 
+// MemoryUsage returns an estimate of the total bytes consumed by all entries.
+func (s *Store) MemoryUsage() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var total int64
+	for k, entry := range s.data {
+		if !entry.IsExpired() {
+			total += int64(len(k)) + int64(len(entry.Value)) + 8 // 8 bytes for ExpiresAt
+		}
+	}
+	return total
+}
+
+// TTLKeyCount returns the number of keys with an active TTL in the heap.
+func (s *Store) TTLKeyCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ttlHeap.Len()
+}
+
+// SubscriberCount returns the number of active event subscribers.
+func (s *Store) SubscriberCount() int {
+	s.subMu.RLock()
+	defer s.subMu.RUnlock()
+	return len(s.subscribers)
+}
+
 // Snapshot returns a copy of the current store map for snapshotting.
 func (s *Store) Snapshot() map[string]*Entry {
 	s.mu.RLock()

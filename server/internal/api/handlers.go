@@ -28,10 +28,12 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 	elapsed := time.Since(s.startTime).Round(time.Second).String()
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total_keys": s.store.Count(),
-		"uptime":     elapsed,
+		"total_keys":       s.store.Count(),
+		"uptime":           elapsed,
+		"memory_bytes":     s.store.MemoryUsage(),
+		"ttl_keys":         s.store.TTLKeyCount(),
+		"connected_clients": s.store.SubscriberCount(),
 	})
-
 }
 
 func (s *APIServer) handleGetKey(w http.ResponseWriter, r *http.Request) {
