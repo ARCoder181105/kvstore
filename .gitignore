@@ -32,3 +32,6 @@ web/.env.local
 
 # Logs
 *.log
+
+kvcli
+kvstore

@@ -5,11 +5,11 @@ import "time"
 type EventType string
 
 type Event struct {
-	Type      EventType
-	Key       string
-	Value     string
-	TTL       int64
-	Timestamp time.Time
+	Type      EventType `json:"type"`
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	TTL       int64     `json:"ttl"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 const (

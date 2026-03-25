@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -26,9 +27,11 @@ type Store struct {
 	data     map[string]*Entry
 	ttlHeap  *TTLHeap
 	ttlIndex map[string]*TTLItem
-	events   chan Event
-	notify   chan struct{} // wakes the eviction goroutine when a TTL key is added
-	once     sync.Once
+	// events      chan Event
+	notify      chan struct{} // wakes the eviction goroutine when a TTL key is added
+	once        sync.Once
+	subscribers []chan Event
+	subMu       sync.RWMutex
 }
 
 func New() *Store {
@@ -36,8 +39,8 @@ func New() *Store {
 		data:     make(map[string]*Entry),
 		ttlHeap:  &TTLHeap{},
 		ttlIndex: make(map[string]*TTLItem),
-		events:   make(chan Event, 256),
-		notify:   make(chan struct{}, 1),
+		// events:   make(chan Event, 256),
+		notify: make(chan struct{}, 1),
 	}
 	heap.Init(s.ttlHeap)
 	return s
@@ -49,7 +52,6 @@ func (s *Store) Ping() string {
 
 func (s *Store) Set(key string, value []byte, ttlNs int64) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	s.data[key] = &Entry{
 		Value:     value,
@@ -75,10 +77,8 @@ func (s *Store) Set(key string, value []byte, ttlNs int64) {
 		}
 	}
 
-	select {
-	case s.events <- Event{Type: EventSet, Key: key, Value: string(value)}:
-	default:
-	}
+	s.mu.Unlock()
+	s.publish(Event{Type: EventSet, Key: key, Value: string(value), Timestamp: time.Now().UTC()})
 }
 
 func expiresAt(ttlNs int64) int64 {
@@ -116,10 +116,10 @@ func (s *Store) Get(key string) ([]byte, bool) {
 
 func (s *Store) Delete(key string) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	_, exists := s.data[key]
 	if !exists {
+		s.mu.Unlock()
 		return false
 	}
 
@@ -130,10 +130,9 @@ func (s *Store) Delete(key string) bool {
 		delete(s.ttlIndex, key)
 	}
 
-	select {
-	case s.events <- Event{Type: EventDel, Key: key}:
-	default:
-	}
+	s.mu.Unlock()
+
+	s.publish(Event{Type: EventDel, Key: key, Timestamp: time.Now().UTC()})
 
 	return true
 }
@@ -160,7 +159,6 @@ func (s *Store) TTL(key string) int64 {
 
 func (s *Store) Expire(key string, ttlNs int64) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	entry, exists := s.data[key]
 	if !exists {
@@ -185,10 +183,8 @@ func (s *Store) Expire(key string, ttlNs int64) bool {
 		}
 	}
 
-	select {
-	case s.events <- Event{Type: EventExpire, Key: key, TTL: ttlNs}:
-	default:
-	}
+	s.mu.Unlock()
+	s.publish(Event{Type: EventExpire, Key: key, TTL: ttlNs, Timestamp: time.Now().UTC()})
 
 	return true
 }
@@ -209,7 +205,8 @@ func (s *Store) MGet(keys []string) [][]byte {
 
 func (s *Store) MSet(entries map[string][]byte) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	var events []Event
 
 	for key, value := range entries {
 		// Remove old TTL entry if present
@@ -218,16 +215,18 @@ func (s *Store) MSet(entries map[string][]byte) {
 			delete(s.ttlIndex, key)
 		}
 		s.data[key] = &Entry{Value: value, ExpiresAt: 0}
-		select {
-		case s.events <- Event{Type: EventSet, Key: key, Value: string(value)}:
-		default:
-		}
+
+		events = append(events, Event{Type: EventSet, Key: key, Value: string(value), Timestamp: time.Now().UTC()})
+	}
+	s.mu.Unlock()
+
+	for _, e := range events {
+		s.publish(e)
 	}
 }
 
 func (s *Store) Incr(key string) (int64, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	entry, exists := s.data[key]
 
@@ -241,26 +240,25 @@ func (s *Store) Incr(key string) (int64, error) {
 			}
 		}
 		s.data[key] = &Entry{Value: []byte("1"), ExpiresAt: 0}
-		select {
-		case s.events <- Event{Type: EventSet, Key: key, Value: "1"}:
-		default:
-		}
+
+		s.mu.Unlock()
+		s.publish(Event{Type: EventSet, Key: key, Value: "1", Timestamp: time.Now().UTC()})
+
 		return 1, nil
 	}
 
 	val, err := strconv.ParseInt(string(entry.Value), 10, 64)
 	if err != nil {
+		s.mu.Unlock()
 		return 0, fmt.Errorf("value is not an integer")
 	}
 
 	val++
 	entry.Value = []byte(strconv.FormatInt(val, 10))
+	valStr := string(entry.Value)
 
-	select {
-	case s.events <- Event{Type: EventSet, Key: key, Value: string(entry.Value)}:
-	default:
-	}
-
+	s.mu.Unlock()
+	s.publish(Event{Type: EventSet, Key: key, Value: valStr, Timestamp: time.Now().UTC()})
 	return val, nil
 }
 
@@ -288,6 +286,19 @@ func (s *Store) Keys(pattern string) []string {
 		}
 	}
 	return keys
+}
+
+func (s *Store) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, entry := range s.data {
+		if !entry.IsExpired() {
+			count++
+		}
+	}
+	return count
 }
 
 // Snapshot returns a copy of the current store map for snapshotting.
@@ -324,4 +335,42 @@ func (s *Store) SetRaw(key string, entry *Entry) {
 		heap.Push(s.ttlHeap, item)
 		s.ttlIndex[key] = item
 	}
+}
+
+func (s *Store) Subscribe() chan Event {
+	ch := make(chan Event, 64)
+
+	s.subMu.Lock()
+	s.subscribers = append(s.subscribers, ch)
+	s.subMu.Unlock()
+
+	return ch
+}
+
+func (s *Store) Unsubscribe(ch chan Event) {
+
+	s.subMu.Lock()
+
+	for i := range s.subscribers {
+		if s.subscribers[i] == ch {
+			s.subscribers = slices.Delete(s.subscribers, i, i+1)
+			break
+		}
+	}
+
+	s.subMu.Unlock()
+	close(ch)
+}
+
+func (s *Store) publish(event Event) {
+	s.subMu.RLock()
+
+	for i := range s.subscribers {
+		select {
+		case s.subscribers[i] <- event:
+		default:
+		}
+	}
+
+	s.subMu.RUnlock()
 }

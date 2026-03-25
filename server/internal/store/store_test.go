@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -73,6 +74,10 @@ func TestSetOverwriteClearsTTL(t *testing.T) {
 
 	// Wait longer than the original TTL
 	time.Sleep(300 * time.Millisecond)
+
+	// give eviction goroutine time to notice cancellation
+	cancel()
+	time.Sleep(10 * time.Millisecond)
 
 	val, ok := s.Get("k")
 	if !ok {
@@ -150,4 +155,91 @@ func TestConcurrentSetGet(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		<-done
 	}
+}
+
+// Subscribes to the store, calls Set, reads from the channel, verifies the event has the correct Type and Key.
+func TestSubscribeReceivesEvent(t *testing.T) {
+	s := New()
+	ch := s.Subscribe()
+
+	s.Set("name", []byte("Alice"), 0)
+
+	select {
+	case event := <-ch:
+		if event.Key != "name" || !bytes.Equal([]byte(event.Value), []byte("Alice")) {
+			t.Fatalf("unexpected event: got key=%s value=%s", event.Key, event.Value)
+		}
+		if event.Type != EventSet {
+			t.Fatalf("unexpected event type: got %s", event.Type)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for event")
+	}
+}
+
+// Subscribes, then immediately unsubscribes, calls Set, verifies nothing arrives on the channel within 100ms.
+func TestUnsubscribeStopsEvents(t *testing.T) {
+	s := New()
+	ch := s.Subscribe()
+
+	s.Unsubscribe(ch)
+
+	s.Set("name", []byte("Alice"), 0)
+
+	select {
+	case event, ok := <-ch:
+		if !ok {
+			// channel was closed, this is expected — test passes
+			return
+		}
+		t.Fatalf("expected no event after unsubscribe, but received: key=%s value=%s type=%s", event.Key, event.Value, event.Type)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// Subscribes twice to get two channels, calls Set once, verifies both channels received the same event. This is the fan-out test.
+func TestMultipleSubscribersAllReceive(t *testing.T) {
+	s := New()
+	ch1 := s.Subscribe()
+	ch2 := s.Subscribe()
+
+	s.Set("name", []byte("Alice"), 0)
+
+	select {
+	case event := <-ch1:
+		if event.Type != EventSet || event.Key != "name" {
+			t.Fatalf("ch1 unexpected event: %+v", event)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for event on ch1")
+	}
+
+	select {
+	case event := <-ch2:
+		if event.Type != EventSet || event.Key != "name" {
+			t.Fatalf("ch2 unexpected event: %+v", event)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for event on ch2")
+	}
+}
+
+// Subscribes but never reads from the channel, calls Set 100 times, verifies all 100 complete within 500ms. This confirms a full subscriber channel never blocks the store.
+func TestSlowSubscriberDoesNotBlockStore(t *testing.T) {
+
+	s := New()
+	_ = s.Subscribe()
+
+	start := time.Now()
+
+	for range 100 {
+		s.Set("name", []byte("Alice"), 0)
+	}
+
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("store blocked for %v", elapsed)
+	}
+
 }

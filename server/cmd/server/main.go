@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/ARCoder181105/kvstore/internal/api"
 	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/server"
 	"github.com/ARCoder181105/kvstore/internal/store"
@@ -55,8 +57,14 @@ func main() {
 		fmt.Println("failed to start server:", err)
 		os.Exit(1)
 	}
-
 	fmt.Println("kvstore listening on :6379")
+
+	apiSrv := api.New(s)
+	if err := apiSrv.Start(":8080"); err != nil {
+		fmt.Println("failed to start HTTP server:", err)
+		os.Exit(1)
+	}
+	fmt.Println("HTTP API listening on :8080")
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -64,6 +72,11 @@ func main() {
 
 	fmt.Println("shutting down...")
 	srv.Stop()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	apiSrv.Stop(shutdownCtx)
+
 	cancel() // stops eviction + AOF goroutines
 
 	// Save final snapshot on clean shutdown

@@ -60,6 +60,7 @@ func (s *Store) StartEviction(ctx context.Context) {
 			}
 		}
 
+		expired := make([]string, 0)
 		// --- Peek at the soonest expiry ---
 		s.mu.RLock()
 		if s.ttlHeap.Len() == 0 {
@@ -89,11 +90,12 @@ func (s *Store) StartEviction(ctx context.Context) {
 			item := heap.Pop(s.ttlHeap).(*TTLItem)
 			delete(s.data, item.key)
 			delete(s.ttlIndex, item.key)
-			select {
-			case s.events <- Event{Type: EventExpired, Key: item.key}:
-			default:
-			}
+
+			expired = append(expired, item.key)
 		}
 		s.mu.Unlock()
+		for _, key := range expired {
+			s.publish(Event{Type: EventExpired, Key: key, Timestamp: time.Now().UTC()})
+		}
 	}
 }
