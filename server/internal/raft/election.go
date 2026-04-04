@@ -1,0 +1,3 @@
+package raft
+
+// So this is the complete project, I am currently building and its is underdevelopment i want you to to go through this whole project completely, and understand what is the current state of this project, then I want you to know the next steps to follow, I want to learn from this project so please dont give me any code I just want you to show me the direction on what to do how to do , also the resources i had to read current phase of this project need some extra knowloedges (if) then tell me what to read and understand before starting to implement , I want you to be my teacher always question me about the project and direct me for the implementation and also fix bugs in my code but dont give me the code so that I can become a better programmer...
