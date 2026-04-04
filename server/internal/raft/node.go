@@ -3,6 +3,9 @@ package raft
 import (
 	"sync"
 	"time"
+
+	"github.com/ARCoder181105/kvstore/internal/protocol"
+	"github.com/ARCoder181105/kvstore/internal/store"
 )
 
 type NodeID string
@@ -18,16 +21,18 @@ const (
 )
 
 type LogEntry struct {
+	Index   uint64
 	Term    uint64
-	Command interface{}
+	Command protocol.Command
 }
 
 type RaftNode struct {
-	mu sync.Mutex
+	mu        sync.Mutex
+	pendingMu sync.Mutex
 
 	// identity & cluster
 	id    NodeID
-	peers []NodeID
+	peers map[NodeID]string // NodeID → "http://localhost:7001"
 
 	// role
 	state State
@@ -58,4 +63,6 @@ type RaftNode struct {
 
 	// pending client requests (index -> response channel)
 	pending map[uint64]chan interface{}
+
+	store *store.Store
 }
