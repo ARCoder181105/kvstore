@@ -66,3 +66,19 @@ type RaftNode struct {
 
 	store *store.Store
 }
+
+func New(id NodeID, peers map[NodeID]string, store *store.Store) *RaftNode {
+	return &RaftNode{
+		id:              id,
+		state:           Follower,
+		votedFor:        NoVote,
+		log:             []LogEntry{{Index: 0, Term: 0}}, // sentinel entry
+		pending:         make(map[uint64]chan interface{}),
+		applyCh:         make(chan LogEntry, 1024),
+		nextIndex:       make(map[NodeID]uint64),
+		matchIndex:      make(map[NodeID]uint64),
+		peers:           peers,
+		store:           store,
+		electionResetAt: time.Now(),
+	}
+}
