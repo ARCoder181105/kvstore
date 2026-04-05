@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI — Run tests, vet, and build on every push and pull request to main
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: ["main", "infra/docker-ci"]
+    paths:
+      - "server/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "server/**"
+
+jobs:
+  test:
+    name: Test & Vet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Download modules
+        working-directory: server
+        run: go mod download
+
+      - name: Vet
+        working-directory: server
+        run: go vet ./...
+
+      - name: Test (with race detector)
+        working-directory: server
+        run: go test -race -count=1 -timeout 120s ./...
+
+  build:
+    name: Build Binary
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Build server
+        working-directory: server
+        run: CGO_ENABLED=0 go build -o kvstore ./cmd/server
+
+      - name: Build CLI
+        working-directory: server
+        run: CGO_ENABLED=0 go build -o kvcli ./cmd/kvcli

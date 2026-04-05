@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# KVStore — 3-Node Raft Cluster + Next.js Dashboard
+#
+# Usage:
+#   docker compose up --build -d    # start everything
+#   docker compose down -v          # stop and remove volumes
+#   docker compose logs -f          # tail all logs
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Raft Node 1 (bootstrap leader candidate) ────────────────────────────
+  node1:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: kvstore-server:local
+    container_name: kvstore-node1
+    restart: unless-stopped
+    environment:
+      NODE_ID:   node1
+      HTTP_ADDR: :8080
+      TCP_ADDR:  :6379
+      DATA_DIR:  /app/data
+      # Peer list: all three nodes know about each other
+      PEERS: "node2=http://node2:8080,node3=http://node3:8080"
+    ports:
+      - "6379:6379"   # TCP protocol (exposed to host for kvcli)
+      - "8080:8080"   # HTTP API     (exposed to host for curl / dashboard)
+    volumes:
+      - node1-data:/app/data
+    networks:
+      - kvstore-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── Raft Node 2 ──────────────────────────────────────────────────────────
+  node2:
+    image: kvstore-server:local
+    container_name: kvstore-node2
+    restart: unless-stopped
+    depends_on:
+      node1:
+        condition: service_started
+    environment:
+      NODE_ID:   node2
+      HTTP_ADDR: :8080
+      TCP_ADDR:  :6379
+      DATA_DIR:  /app/data
+      PEERS: "node1=http://node1:8080,node3=http://node3:8080"
+    # Internal ports only — node2/node3 are not exposed to the host
+    expose:
+      - "8080"
+      - "6379"
+    volumes:
+      - node2-data:/app/data
+    networks:
+      - kvstore-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── Raft Node 3 ──────────────────────────────────────────────────────────
+  node3:
+    image: kvstore-server:local
+    container_name: kvstore-node3
+    restart: unless-stopped
+    depends_on:
+      node1:
+        condition: service_started
+    environment:
+      NODE_ID:   node3
+      HTTP_ADDR: :8080
+      TCP_ADDR:  :6379
+      DATA_DIR:  /app/data
+      PEERS: "node1=http://node1:8080,node2=http://node2:8080"
+    expose:
+      - "8080"
+      - "6379"
+    volumes:
+      - node3-data:/app/data
+    networks:
+      - kvstore-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── Next.js Dashboard ─────────────────────────────────────────────────────
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        # Dashboard points at node1's HTTP API
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+        NEXT_PUBLIC_WS_URL:  ws://localhost:8080
+    container_name: kvstore-web
+    restart: unless-stopped
+    depends_on:
+      node1:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    networks:
+      - kvstore-net
+
+# ── Named volumes (data persists across container restarts) ────────────────
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
+
+# ── Internal bridge network ────────────────────────────────────────────────
+networks:
+  kvstore-net:
+    driver: bridge
