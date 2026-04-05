@@ -12,7 +12,7 @@ import (
 
 func TestHandleHealth(t *testing.T) {
 	s := store.New()
-	apiSrv := New(s)
+	apiSrv := New(s, nil)
 
 	req := httptest.NewRequest("GET", "/api/health", nil)
 	rec := httptest.NewRecorder()
@@ -31,7 +31,7 @@ func TestHandleHealth(t *testing.T) {
 func TestHandleGetKeyFound(t *testing.T) {
 	s := store.New()
 	s.Set("foo", []byte("bar"), 0)
-	apiSrv := New(s)
+	apiSrv := New(s, nil)
 
 	req := httptest.NewRequest("GET", "/api/keys/foo", nil)
 	rec := httptest.NewRecorder()
@@ -54,7 +54,7 @@ func TestHandleGetKeyFound(t *testing.T) {
 
 func TestHandleGetKeyNotFound(t *testing.T) {
 	s := store.New()
-	apiSrv := New(s)
+	apiSrv := New(s, nil)
 
 	req := httptest.NewRequest("GET", "/api/keys/foo", nil)
 	rec := httptest.NewRecorder()
@@ -74,7 +74,7 @@ func TestHandleGetKeyNotFound(t *testing.T) {
 
 func TestHandleSetKey(t *testing.T) {
 	s := store.New()
-	apiSrv := New(s)
+	apiSrv := New(s, nil)
 
 	// key goes in the URL, only value (and optional ttl) in the body
 	payload := `{"value":"bar"}`
@@ -101,7 +101,7 @@ func TestHandleSetKey(t *testing.T) {
 
 func TestHandleSetKeyMissingValue(t *testing.T) {
 	s := store.New()
-	apiSrv := New(s)
+	apiSrv := New(s, nil)
 
 	// empty value field → handler returns 400
 	payload := `{"value":""}`
@@ -126,7 +126,7 @@ func TestHandleSetKeyMissingValue(t *testing.T) {
 func TestHandleDeleteKey(t *testing.T) {
 	s := store.New()
 	s.Set("foo", []byte("bar"), 0)
-	apiSrv := New(s)
+	apiSrv := New(s, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/keys/foo", nil)
 	rec := httptest.NewRecorder()
@@ -147,7 +147,7 @@ func TestHandleDeleteKey(t *testing.T) {
 
 func TestHandleDeleteKeyNotFound(t *testing.T) {
 	s := store.New()
-	apiSrv := New(s)
+	apiSrv := New(s, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/keys/foo", nil)
 	rec := httptest.NewRecorder()
@@ -169,7 +169,7 @@ func TestHandleListKeys(t *testing.T) {
 	s := store.New()
 	s.Set("foo", []byte("bar"), 0)
 	s.Set("baz", []byte("qux"), 0)
-	apiSrv := New(s)
+	apiSrv := New(s, nil)
 
 	req := httptest.NewRequest("GET", "/api/keys", nil)
 	rec := httptest.NewRecorder()

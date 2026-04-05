@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -85,6 +86,87 @@ func New(id NodeID, peers map[NodeID]string, store *store.Store) *RaftNode {
 	}
 
 	go r.runElectionTimer()
+	go r.applyCommitted()
 
 	return r
 }
+
+type ErrorNotLeader struct {
+	LeaderID NodeID
+}
+
+func (e *ErrorNotLeader) Error() string {
+	return fmt.Sprintf("not leader, leader is %s", e.LeaderID)
+}
+
+func (r *RaftNode) Submit(cmd protocol.Command) (interface{}, error) {
+	r.mu.Lock()
+	if r.state != Leader {
+		leader := r.leaderID
+		r.mu.Unlock()
+		return nil, &ErrorNotLeader{LeaderID: leader}
+	}
+
+	index := uint64(len(r.log))
+	term := r.currentTerm
+	r.log = append(r.log, LogEntry{
+		Index:   index,
+		Term:    term,
+		Command: cmd,
+	})
+	r.mu.Unlock()
+
+	waitCh := make(chan interface{}, 1)
+	r.pendingMu.Lock()
+	r.pending[index] = waitCh
+	r.pendingMu.Unlock()
+
+	select {
+	case res := <-waitCh:
+		return res, nil
+	case <-time.After(2 * time.Second):
+		return nil, fmt.Errorf("raft submit timeout")
+	}
+}
+
+func (r *RaftNode) applyCommitted() {
+	for {
+		time.Sleep(10 * time.Millisecond)
+		
+		r.mu.Lock()
+		var commandsToApply []LogEntry
+		for r.commitIndex > r.lastApplied {
+			r.lastApplied++
+			entry := r.log[r.lastApplied]
+			commandsToApply = append(commandsToApply, entry)
+		}
+		r.mu.Unlock()
+
+		for _, entry := range commandsToApply {
+			cmd := entry.Command
+			if cmd.ID == protocol.CmdSet {
+				r.store.Set(cmd.Key, cmd.Value, cmd.TTL)
+			} else if cmd.ID == protocol.CmdDel {
+				r.store.Delete(cmd.Key)
+			} else if cmd.ID == protocol.CmdExpire {
+				r.store.Expire(cmd.Key, cmd.TTL)
+			}
+
+			r.pendingMu.Lock()
+			ch, ok := r.pending[entry.Index]
+			if ok {
+				ch <- struct{}{}
+				delete(r.pending, entry.Index)
+			}
+			r.pendingMu.Unlock()
+		}
+	}
+}
+
+func (r *RaftNode) GetPeerURL(id NodeID) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	url, ok := r.peers[id]
+	return url, ok
+}
+

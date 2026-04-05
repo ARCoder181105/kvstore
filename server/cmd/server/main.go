@@ -12,6 +12,7 @@ import (
 	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/server"
 	"github.com/ARCoder181105/kvstore/internal/store"
+	"github.com/ARCoder181105/kvstore/internal/raft"
 )
 
 func main() {
@@ -59,7 +60,10 @@ func main() {
 	}
 	fmt.Println("kvstore listening on :6379")
 
-	apiSrv := api.New(s)
+	// 6. Initialize Raft
+	raftNode := raft.New("node1", map[raft.NodeID]string{"node1": "http://localhost:8080"}, s)
+
+	apiSrv := api.New(s, raftNode)
 	if err := apiSrv.Start(":8080"); err != nil {
 		fmt.Println("failed to start HTTP server:", err)
 		os.Exit(1)
