@@ -11,11 +11,8 @@ Based on our analysis, here is the exact state of your project, what you left ou
 ## 🎯 Current Project State
 
 - **Phase 1-6:** ✅ Largely Complete. The core store, TCP networking, and API wrappers are well-defined.
-- **Phase 7 (Raft):** 🚧 In Progress. You are currently wrapping up **Week 10 / Week 11**.
-  - `node.go` structures and basic states are initialized.
-  - `log.go` basic helper methods are implemented.
-  - `log_test.go` has unit tests for log operations.
-- **Phase 8 (Observability):** ⏳ Not Started yet.
+- **Phase 7 (Raft):** ✅ Complete. You have implemented robust leader election, replication, and proxying.
+- **Phase 8 (Observability):** 🚧 In Progress. This is your next focus area!
 
 ---
 
@@ -24,15 +21,15 @@ Based on our analysis, here is the exact state of your project, what you left ou
 Here is exactly what remains for you to build to finish this system:
 
 ### 🛠️ Raft Consensus (Weeks 10-13)
-- [ ] **Election Timer Loop:** A background goroutine that constantly ticks and triggers an election if a heartbeat hasn't been received in 150-300ms.
-- [ ] **RPC Structures:** Define `RequestVoteArgs`, `RequestVoteReply` and `AppendEntriesArgs`, `AppendEntriesReply`.
-- [ ] **Candidate Logic (`startElection`):** Transitioning to candidate, incrementing term, voting for self, and sending `RequestVote` RPCs in parallel.
-- [ ] **Follower Logic (`RequestVote` Handler):** Evaluating inbound votes. Granting a vote if the candidate's term is newer and their log is at least as up-to-date.
-- [ ] **Leader Logic (`AppendEntries` Heartbeat):** Sending empty log entries every 50ms so followers don't trigger new elections.
-- [ ] **Log Replication:** Leader accepts commands from clients, appends to its own log, and broadcasts them via `AppendEntries`.
-- [ ] **Commit Index Management:** Advancing the `commitIndex` once a majority of nodes acknowledge a log entry.
-- [ ] **State Machine Application:** A background loop (`applyCommitted()`) that reads from the `commitIndex` and physically executes those commands on the KV `Store`.
-- [ ] **Leader Write Proxy:** Ensuring followers who receive arbitrary writes proxy them safely over to the active leader. 
+- [x] **Election Timer Loop:** A background goroutine that constantly ticks and triggers an election if a heartbeat hasn't been received in 150-300ms.
+- [x] **RPC Structures:** Define `RequestVoteArgs`, `RequestVoteReply` and `AppendEntriesArgs`, `AppendEntriesReply`.
+- [x] **Candidate Logic (`startElection`):** Transitioning to candidate, incrementing term, voting for self, and sending `RequestVote` RPCs in parallel.
+- [x] **Follower Logic (`RequestVote` Handler):** Evaluating inbound votes. Granting a vote if the candidate's term is newer and their log is at least as up-to-date.
+- [x] **Leader Logic (`AppendEntries` Heartbeat):** Sending empty log entries every 50ms so followers don't trigger new elections.
+- [x] **Log Replication:** Leader accepts commands from clients, appends to its own log, and broadcasts them via `AppendEntries`.
+- [x] **Commit Index Management:** Advancing the `commitIndex` once a majority of nodes acknowledge a log entry.
+- [x] **State Machine Application:** A background loop (`applyCommitted()`) that reads from the `commitIndex` and physically executes those commands on the KV `Store`.
+- [x] **Leader Write Proxy:** Ensuring followers who receive arbitrary writes proxy them safely over to the active leader.  
 
 ### 📊 Observability (Week 14)
 - [ ] **Prometheus Metrics:** Tracking command counts, latencies, etc.
