@@ -57,7 +57,7 @@ func (r *RaftNode) startElection() {
 				r.currentTerm = reply.Term
 				r.state = Follower
 				r.votedFor = NoVote
-				r.leaderID = r.id
+				r.leaderID = ""
 				r.electionResetAt = time.Now()
 				return
 			}
