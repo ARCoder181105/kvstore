@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"math/rand"
 	"sync"
 	"time"
 
@@ -68,7 +69,7 @@ type RaftNode struct {
 }
 
 func New(id NodeID, peers map[NodeID]string, store *store.Store) *RaftNode {
-	return &RaftNode{
+	r := &RaftNode{
 		id:              id,
 		state:           Follower,
 		votedFor:        NoVote,
@@ -80,5 +81,10 @@ func New(id NodeID, peers map[NodeID]string, store *store.Store) *RaftNode {
 		peers:           peers,
 		store:           store,
 		electionResetAt: time.Now(),
+		electionTimeout: time.Duration(150+rand.Intn(150)) * time.Millisecond,
 	}
+
+	go r.runElectionTimer()
+
+	return r
 }
