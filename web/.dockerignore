@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+.npm
+
+# Next.js build output
+.next/
+out/
+
+# Environment files (secrets)
+.env
+.env.local
+.env.production
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docs
+*.md

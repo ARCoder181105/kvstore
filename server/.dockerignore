@@ -1,0 +1,22 @@
+# Build artifacts
+kvstore
+kvcli
+*.exe
+*.out
+*.test
+*.prof
+
+# Runtime data — never bake into image
+data/
+
+# Coverage reports
+coverage.out
+coverage.html
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

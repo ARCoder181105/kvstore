@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker Publish — Build and push images to Docker Hub on merge to main
+#
+# Required GitHub Secrets:
+#   DOCKER_USERNAME  — your Docker Hub username
+#   DOCKER_PASSWORD  — your Docker Hub access token (NOT your password)
+#
+# Images produced:
+#   <DOCKER_USERNAME>/kvstore-server:latest
+#   <DOCKER_USERNAME>/kvstore-server:<git-sha>
+#   <DOCKER_USERNAME>/kvstore-web:latest
+#   <DOCKER_USERNAME>/kvstore-web:<git-sha>
+# ─────────────────────────────────────────────────────────────────────────────
+name: Docker Publish
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  publish:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Set up Docker Buildx (required for multi-arch + cache) ───────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Log in to Docker Hub ─────────────────────────────────────────────
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # ── Extract metadata (tags + labels) for server image ────────────────
+      - name: Docker metadata — server
+        id: meta-server
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/kvstore-server
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=,format=short
+
+      # ── Build and push the Go server image ───────────────────────────────
+      - name: Build and push server image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          file: ./server/Dockerfile
+          push: true
+          tags: ${{ steps.meta-server.outputs.tags }}
+          labels: ${{ steps.meta-server.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Extract metadata for web image ───────────────────────────────────
+      - name: Docker metadata — web
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/kvstore-web
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=,format=short
+
+      # ── Build and push the Next.js web image ─────────────────────────────
+      - name: Build and push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          file: ./web/Dockerfile
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          # Pass build-time API URL — override via repo variable if needed
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:8080
+            NEXT_PUBLIC_WS_URL=ws://localhost:8080
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

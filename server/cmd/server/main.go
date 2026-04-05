@@ -5,18 +5,40 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ARCoder181105/kvstore/internal/api"
 	aof "github.com/ARCoder181105/kvstore/internal/persistence"
+	"github.com/ARCoder181105/kvstore/internal/raft"
 	"github.com/ARCoder181105/kvstore/internal/server"
 	"github.com/ARCoder181105/kvstore/internal/store"
-	"github.com/ARCoder181105/kvstore/internal/raft"
 )
 
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
+}
+
 func main() {
-	if err := os.MkdirAll("./data", 0755); err != nil {
+	nodeID := getEnv("NODE_ID", "node1")
+	httpAddr := getEnv("HTTP_ADDR", ":8080")
+	tcpAddr := getEnv("TCP_ADDR", ":6379")
+	dataDir := getEnv("DATA_DIR", "./data")
+	peersStr := getEnv("PEERS", "node1=http://localhost:8080")
+
+	peers := make(map[raft.NodeID]string)
+	for _, p := range strings.Split(peersStr, ",") {
+		parts := strings.Split(p, "=")
+		if len(parts) == 2 {
+			peers[raft.NodeID(parts[0])] = parts[1]
+		}
+	}
+
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		fmt.Println("failed to create data directory:", err)
 		os.Exit(1)
 	}
@@ -28,13 +50,13 @@ func main() {
 	// with short remaining TTLs that were being loaded from disk.
 
 	// 1. Load snapshot (absolute ExpiresAt — no time math required)
-	if err := aof.Load("./data/snapshot.db", s); err != nil {
+	if err := aof.Load(dataDir+"/snapshot.db", s); err != nil {
 		fmt.Println("snapshot load error:", err)
 		os.Exit(1)
 	}
 
 	// 2. Replay AOF on top of snapshot (also uses absolute ExpiresAt now)
-	if err := aof.Replay("./data/aof.log", s); err != nil {
+	if err := aof.Replay(dataDir+"/aof.log", s); err != nil {
 		fmt.Println("AOF replay error:", err)
 		os.Exit(1)
 	}
@@ -45,7 +67,7 @@ func main() {
 	go s.StartEviction(ctx)
 
 	// 4. Start AOF writer
-	aofWriter, err := aof.NewAOFWriter("./data/aof.log")
+	aofWriter, err := aof.NewAOFWriter(dataDir + "/aof.log")
 	if err != nil {
 		fmt.Println("failed to create AOF writer:", err)
 		os.Exit(1)
@@ -53,22 +75,22 @@ func main() {
 	go aofWriter.Start(ctx)
 
 	// 5. Start TCP server
-	srv := server.New(":6379", s, aofWriter)
+	srv := server.New(tcpAddr, s, aofWriter)
 	if err := srv.Start(); err != nil {
 		fmt.Println("failed to start server:", err)
 		os.Exit(1)
 	}
-	fmt.Println("kvstore listening on :6379")
+	fmt.Printf("kvstore listening on %s\n", tcpAddr)
 
 	// 6. Initialize Raft
-	raftNode := raft.New("node1", map[raft.NodeID]string{"node1": "http://localhost:8080"}, s)
+	raftNode := raft.New(raft.NodeID(nodeID), peers, s)
 
 	apiSrv := api.New(s, raftNode)
-	if err := apiSrv.Start(":8080"); err != nil {
+	if err := apiSrv.Start(httpAddr); err != nil {
 		fmt.Println("failed to start HTTP server:", err)
 		os.Exit(1)
 	}
-	fmt.Println("HTTP API listening on :8080")
+	fmt.Printf("HTTP API listening on %s\n", httpAddr)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -84,7 +106,7 @@ func main() {
 	cancel() // stops eviction + AOF goroutines
 
 	// Save final snapshot on clean shutdown
-	if err := aof.Save(s, "./data/snapshot.db"); err != nil {
+	if err := aof.Save(s, dataDir+"/snapshot.db"); err != nil {
 		fmt.Println("snapshot save error:", err)
 	}
 
