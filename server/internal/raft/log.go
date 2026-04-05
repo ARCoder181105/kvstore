@@ -31,6 +31,9 @@ func (r *RaftNode) appendEntry(entry LogEntry) {
 }
 
 func (r *RaftNode) truncateFrom(index uint64) {
+	if index == 0 {
+		index = 1
+	}
 	if index >= uint64(len(r.log)) {
 		return
 	}
