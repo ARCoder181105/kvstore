@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ARCoder181105/kvstore/internal/raft"
 	"github.com/ARCoder181105/kvstore/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
@@ -16,6 +17,7 @@ type APIServer struct {
 	router     chi.Router
 	startTime  time.Time
 	httpServer *http.Server
+	raft       *raft.RaftNode
 }
 
 func (s *APIServer) setupRoutes() {
@@ -37,15 +39,18 @@ func (s *APIServer) setupRoutes() {
 	r.Put("/api/keys/{key}/expire", s.handleExpireKey)
 	r.Get("/api/keys/{key}/ttl", s.handleGetTTL)
 	r.Get("/ws/events", s.handleWebSocket)
+	r.Post("/raft/requestvote", s.handleRequestVote)
+	r.Post("/raft/appendentries", s.handleAppendEntries)
 
 	s.router = r
 }
 
-func New(store *store.Store) *APIServer {
+func New(store *store.Store, raft *raft.RaftNode) *APIServer {
 	s := &APIServer{
 		store:     store,
 		router:    chi.NewRouter(),
 		startTime: time.Now(),
+		raft:      raft,
 	}
 	s.setupRoutes()
 	return s

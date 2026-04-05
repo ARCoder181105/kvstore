@@ -23,11 +23,10 @@ func (e *Entry) IsExpired() bool {
 }
 
 type Store struct {
-	mu       sync.RWMutex
-	data     map[string]*Entry
-	ttlHeap  *TTLHeap
-	ttlIndex map[string]*TTLItem
-	// events      chan Event
+	mu          sync.RWMutex
+	data        map[string]*Entry
+	ttlHeap     *TTLHeap
+	ttlIndex    map[string]*TTLItem
 	notify      chan struct{} // wakes the eviction goroutine when a TTL key is added
 	once        sync.Once
 	subscribers []chan Event
