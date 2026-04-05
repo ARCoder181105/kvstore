@@ -72,9 +72,58 @@ func (r *RaftNode) startElection() {
 				if votes > (len(r.peers)+1)/2 {
 					r.state = Leader
 					r.electionResetAt = time.Now()
+					go r.runHeartbeatLoop()
 				}
 			}
 		}(k, v)
 	}
 
+}
+
+func (r *RaftNode) runHeartbeatLoop() {
+	for {
+		time.Sleep(50 * time.Millisecond)
+
+		r.mu.Lock()
+
+		state := r.state
+		term := r.currentTerm
+		id := r.id
+		leaderCommit := r.commitIndex
+		prevLogIndex := r.getLastIndex()
+		prevLogTerm := r.getLastTerm()
+
+		r.mu.Unlock()
+
+		if state != Leader {
+			return
+		}
+
+		for k, v := range r.peers {
+
+			go func(peerID NodeID, peerURL string) {
+				reply, err := r.sendAppendEntries(peerURL, AppendEntriesArgs{
+					Term:         term,
+					LeaderID:     id,
+					PrevLogIndex: prevLogIndex,
+					PrevLogTerm:  prevLogTerm,
+					Entries:      []LogEntry{},
+					LeaderCommit: leaderCommit,
+				})
+
+				if err != nil {
+					return
+				}
+				r.mu.Lock()
+				if reply.Term > r.currentTerm {
+					r.currentTerm = reply.Term
+					r.state = Follower
+					r.votedFor = NoVote
+					r.leaderID = ""
+				}
+				r.mu.Unlock()
+			}(k, v)
+		}
+
+	}
 }
