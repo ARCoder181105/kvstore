@@ -14,7 +14,7 @@ export function useEventStream(maxEvents = 100) {
   const retryDelayRef = useRef(1000);
 
   const connect = useCallback(() => {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
     if (!wsUrl) return;
 
     const ws = new WebSocket(`${wsUrl}/ws/events`);

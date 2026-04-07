@@ -8,8 +8,8 @@ export function useKeys(pattern?: string) {
   return useQuery({
     queryKey: ["keys", pattern],
     queryFn: () => api.getKeys(pattern),
-    refetchInterval: 5000,
-    staleTime: 1000,
+    refetchInterval: 2000,
+    staleTime: 0,
   });
 }
 
@@ -22,6 +22,9 @@ export function useSetKey() {
       qc.invalidateQueries({ queryKey: ["keys"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
     },
+    onError: (err: Error) => {
+      console.error("[useSetKey] failed:", err.message);
+    },
   });
 }
 
@@ -33,6 +36,9 @@ export function useDeleteKey() {
       qc.invalidateQueries({ queryKey: ["keys"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
     },
+    onError: (err: Error) => {
+      console.error("[useDeleteKey] failed:", err.message);
+    },
   });
 }
 
@@ -42,5 +48,8 @@ export function useSetExpire() {
     mutationFn: ({ key, seconds }: { key: string; seconds: number }) =>
       api.setExpire(key, seconds),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["keys"] }),
+    onError: (err: Error) => {
+      console.error("[useSetExpire] failed:", err.message);
+    },
   });
 }

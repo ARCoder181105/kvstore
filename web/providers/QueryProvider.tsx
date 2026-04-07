@@ -10,7 +10,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             retry: 1,
-            staleTime: 1000,
+            staleTime: 0,
           },
         },
       })

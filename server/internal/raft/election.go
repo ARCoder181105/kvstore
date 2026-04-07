@@ -36,6 +36,17 @@ func (r *RaftNode) startElection() {
 
 	votes := 1
 
+	if len(r.peers) == 0 {
+		r.mu.Lock()
+		r.state = Leader
+		r.electionResetAt = time.Now()
+		r.leaderID = r.id
+		// nextIndex/matchIndex are empty
+		r.mu.Unlock()
+		go r.runHeartbeatLoop()
+		return
+	}
+
 	for k, v := range r.peers {
 		go func(peerID NodeID, peerURL string) {
 			reply, err := r.sendRequestVote(peerURL, RequestVoteArgs{
@@ -180,6 +191,10 @@ func (r *RaftNode) runHeartbeatLoop() {
 			}(peerID, peerURL, nextIdx, prevLogIndex, prevLogTerm, entries)
 		}
 		
+		// Advance commit index for the leader itself.
+		// This is critical for single-node deployments where the peer loop
+		// above never executes, so commitIndex would never advance otherwise.
+		r.advanceCommitIndex()
 		r.mu.Unlock()
 	}
 }

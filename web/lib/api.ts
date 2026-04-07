@@ -1,6 +1,6 @@
 import type { KeysResponse, KeyEntry, Stats, SetKeyPayload, ApiError } from "./types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL;
+const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/protocol"
 	"github.com/ARCoder181105/kvstore/internal/store"
 )
@@ -66,10 +67,11 @@ type RaftNode struct {
 	// pending client requests (index -> response channel)
 	pending map[uint64]chan interface{}
 
-	store *store.Store
+	store     *store.Store
+	aofWriter *aof.AOFWriter
 }
 
-func New(id NodeID, peers map[NodeID]string, store *store.Store) *RaftNode {
+func New(id NodeID, peers map[NodeID]string, store *store.Store, aofWriter *aof.AOFWriter) *RaftNode {
 	r := &RaftNode{
 		id:              id,
 		state:           Follower,
@@ -81,6 +83,7 @@ func New(id NodeID, peers map[NodeID]string, store *store.Store) *RaftNode {
 		matchIndex:      make(map[NodeID]uint64),
 		peers:           peers,
 		store:           store,
+		aofWriter:       aofWriter,
 		electionResetAt: time.Now(),
 		electionTimeout: time.Duration(150+rand.Intn(150)) * time.Millisecond,
 	}
@@ -109,17 +112,18 @@ func (r *RaftNode) Submit(cmd protocol.Command) (interface{}, error) {
 
 	index := uint64(len(r.log))
 	term := r.currentTerm
+	
+	waitCh := make(chan interface{}, 1)
+	r.pendingMu.Lock()
+	r.pending[index] = waitCh
+	r.pendingMu.Unlock()
+
 	r.log = append(r.log, LogEntry{
 		Index:   index,
 		Term:    term,
 		Command: cmd,
 	})
 	r.mu.Unlock()
-
-	waitCh := make(chan interface{}, 1)
-	r.pendingMu.Lock()
-	r.pending[index] = waitCh
-	r.pendingMu.Unlock()
 
 	select {
 	case res := <-waitCh:
@@ -146,10 +150,42 @@ func (r *RaftNode) applyCommitted() {
 			cmd := entry.Command
 			if cmd.ID == protocol.CmdSet {
 				r.store.Set(cmd.Key, cmd.Value, cmd.TTL)
+				if r.aofWriter != nil {
+					var expiresAt int64
+					if cmd.TTL > 0 {
+						expiresAt = time.Now().UnixNano() + cmd.TTL
+					}
+					r.aofWriter.Append(aof.AOFEntry{
+						Timestamp: time.Now().UnixNano(),
+						CmdID:     protocol.CmdSet,
+						Key:       cmd.Key,
+						Value:     cmd.Value,
+						ExpiresAt: expiresAt,
+					})
+				}
 			} else if cmd.ID == protocol.CmdDel {
 				r.store.Delete(cmd.Key)
+				if r.aofWriter != nil {
+					r.aofWriter.Append(aof.AOFEntry{
+						Timestamp: time.Now().UnixNano(),
+						CmdID:     protocol.CmdDel,
+						Key:       cmd.Key,
+					})
+				}
 			} else if cmd.ID == protocol.CmdExpire {
 				r.store.Expire(cmd.Key, cmd.TTL)
+				if r.aofWriter != nil {
+					var expiresAt int64
+					if cmd.TTL > 0 {
+						expiresAt = time.Now().UnixNano() + cmd.TTL
+					}
+					r.aofWriter.Append(aof.AOFEntry{
+						Timestamp: time.Now().UnixNano(),
+						CmdID:     protocol.CmdExpire,
+						Key:       cmd.Key,
+						ExpiresAt: expiresAt,
+					})
+				}
 			}
 
 			r.pendingMu.Lock()

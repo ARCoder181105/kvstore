@@ -12,7 +12,7 @@ import (
 //
 
 func TestGetLastIndex_FreshNode(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	if idx := node.getLastIndex(); idx != 0 {
@@ -21,7 +21,7 @@ func TestGetLastIndex_FreshNode(t *testing.T) {
 }
 
 func TestGetLastIndex_WithEntries(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.log = []LogEntry{
@@ -35,7 +35,7 @@ func TestGetLastIndex_WithEntries(t *testing.T) {
 }
 
 func TestGetLastIndex_AfterTruncate(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.log = []LogEntry{
@@ -55,7 +55,7 @@ func TestGetLastIndex_AfterTruncate(t *testing.T) {
 //
 
 func TestGetLastTerm_FreshNode(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	if term := node.getLastTerm(); term != 0 {
@@ -64,7 +64,7 @@ func TestGetLastTerm_FreshNode(t *testing.T) {
 }
 
 func TestGetLastTerm_WithEntries(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.log = []LogEntry{{Index: 0, Term: 0}, {Index: 1, Term: 5}}
@@ -74,7 +74,7 @@ func TestGetLastTerm_WithEntries(t *testing.T) {
 }
 
 func TestGetLastTerm_AfterTruncate(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.log = []LogEntry{{Index: 0, Term: 0}, {Index: 1, Term: 2}, {Index: 2, Term: 3}}
@@ -89,7 +89,7 @@ func TestGetLastTerm_AfterTruncate(t *testing.T) {
 //
 
 func TestGetEntry_ValidIndex(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	expected := LogEntry{Index: 1, Term: 2, Command: protocol.Command{ID: protocol.CmdSet, Key: "a", Value: []byte("b")}}
@@ -102,7 +102,7 @@ func TestGetEntry_ValidIndex(t *testing.T) {
 }
 
 func TestGetEntry_OutOfBounds(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	actual := node.getEntry(5)
@@ -112,7 +112,7 @@ func TestGetEntry_OutOfBounds(t *testing.T) {
 }
 
 func TestGetEntry_FreshNode(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	actual := node.getEntry(0)
@@ -126,7 +126,7 @@ func TestGetEntry_FreshNode(t *testing.T) {
 //
 
 func TestAppendEntry_FreshNode(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.appendEntry(LogEntry{Index: 1, Term: 1})
@@ -136,7 +136,7 @@ func TestAppendEntry_FreshNode(t *testing.T) {
 }
 
 func TestAppendEntry_ExistingEntries(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.appendEntry(LogEntry{Index: 1, Term: 2})
@@ -150,7 +150,7 @@ func TestAppendEntry_ExistingEntries(t *testing.T) {
 //
 
 func TestTruncateFrom_Middle(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.log = append(node.log, LogEntry{Index: 1, Term: 1}, LogEntry{Index: 2, Term: 2})
@@ -161,7 +161,7 @@ func TestTruncateFrom_Middle(t *testing.T) {
 }
 
 func TestTruncateFrom_Full(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.truncateFrom(1) // Truncating from index 1 should preserve sentinel
@@ -171,7 +171,7 @@ func TestTruncateFrom_Full(t *testing.T) {
 }
 
 func TestTruncateFrom_OutOfBounds(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.truncateFrom(5) // Should have no effect
@@ -181,7 +181,7 @@ func TestTruncateFrom_OutOfBounds(t *testing.T) {
 }
 
 func TestTruncateFrom_FreshNode(t *testing.T) {
-	node := New("test", nil, nil)
+	node := New("test", nil, nil, nil)
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.truncateFrom(1) // Should keep the sentinel

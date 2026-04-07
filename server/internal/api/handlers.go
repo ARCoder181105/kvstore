@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -34,7 +35,7 @@ func (s *APIServer) proxyToLeader(w http.ResponseWriter, r *http.Request, leader
 		return
 	}
 
-	proxyReq, _ := http.NewRequest(r.Method, leaderURL+r.URL.Path, r.Body)
+	proxyReq, _ := http.NewRequest(r.Method, leaderURL+r.URL.RequestURI(), r.Body)
 	proxyReq.Header = r.Header
 	
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -105,12 +106,23 @@ func (s *APIServer) handleGetKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleSetKey(w http.ResponseWriter, r *http.Request) {
 
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid request body",
+			"code":  "BAD_REQUEST",
+		})
+		return
+	}
+	r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
 	var body struct {
 		Value string `json:"value"`
 		TTL   int64  `json:"ttl"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "invalid request body",
 			"code":  "BAD_REQUEST",
@@ -247,11 +259,22 @@ func (s *APIServer) handleListKeys(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleExpireKey(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
 
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid request body",
+			"code":  "BAD_REQUEST",
+		})
+		return
+	}
+	r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
 	var body struct {
 		Seconds int64 `json:"seconds"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "invalid request body",
 			"code":  "BAD_REQUEST",

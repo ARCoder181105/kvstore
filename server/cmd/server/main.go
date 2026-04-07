@@ -34,7 +34,10 @@ func main() {
 	for _, p := range strings.Split(peersStr, ",") {
 		parts := strings.Split(p, "=")
 		if len(parts) == 2 {
-			peers[raft.NodeID(parts[0])] = parts[1]
+			pID := raft.NodeID(parts[0])
+			if pID != raft.NodeID(nodeID) {
+				peers[pID] = parts[1]
+			}
 		}
 	}
 
@@ -83,7 +86,7 @@ func main() {
 	fmt.Printf("kvstore listening on %s\n", tcpAddr)
 
 	// 6. Initialize Raft
-	raftNode := raft.New(raft.NodeID(nodeID), peers, s)
+	raftNode := raft.New(raft.NodeID(nodeID), peers, s, aofWriter)
 
 	apiSrv := api.New(s, raftNode)
 	if err := apiSrv.Start(httpAddr); err != nil {
