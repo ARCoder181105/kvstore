@@ -27,6 +27,7 @@ func (r *RaftNode) startElection() {
 	r.currentTerm += 1
 	r.state = Candidate
 	r.votedFor = r.id
+	r.electionResetAt = time.Now()
 
 	term := r.currentTerm
 	lastIndex := r.getLastIndex()
@@ -133,7 +134,7 @@ func (r *RaftNode) runHeartbeatLoop() {
 		for peerID, peerURL := range r.peers {
 			nextIdx := r.nextIndex[peerID]
 			prevLogIndex := nextIdx - 1
-			
+
 			// getEntry handles out of bounds safely
 			var prevLogTerm uint64
 			if prevLogIndex < uint64(len(r.log)) {
@@ -190,7 +191,7 @@ func (r *RaftNode) runHeartbeatLoop() {
 				}
 			}(peerID, peerURL, nextIdx, prevLogIndex, prevLogTerm, entries)
 		}
-		
+
 		// Advance commit index for the leader itself.
 		// This is critical for single-node deployments where the peer loop
 		// above never executes, so commitIndex would never advance otherwise.

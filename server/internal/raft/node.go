@@ -112,7 +112,7 @@ func (r *RaftNode) Submit(cmd protocol.Command) (interface{}, error) {
 
 	index := uint64(len(r.log))
 	term := r.currentTerm
-	
+
 	waitCh := make(chan interface{}, 1)
 	r.pendingMu.Lock()
 	r.pending[index] = waitCh
@@ -136,7 +136,7 @@ func (r *RaftNode) Submit(cmd protocol.Command) (interface{}, error) {
 func (r *RaftNode) applyCommitted() {
 	for {
 		time.Sleep(10 * time.Millisecond)
-		
+
 		r.mu.Lock()
 		var commandsToApply []LogEntry
 		for r.commitIndex > r.lastApplied {
@@ -148,7 +148,8 @@ func (r *RaftNode) applyCommitted() {
 
 		for _, entry := range commandsToApply {
 			cmd := entry.Command
-			if cmd.ID == protocol.CmdSet {
+			switch cmd.ID {
+			case protocol.CmdSet:
 				r.store.Set(cmd.Key, cmd.Value, cmd.TTL)
 				if r.aofWriter != nil {
 					var expiresAt int64
@@ -163,7 +164,7 @@ func (r *RaftNode) applyCommitted() {
 						ExpiresAt: expiresAt,
 					})
 				}
-			} else if cmd.ID == protocol.CmdDel {
+			case protocol.CmdDel:
 				r.store.Delete(cmd.Key)
 				if r.aofWriter != nil {
 					r.aofWriter.Append(aof.AOFEntry{
@@ -172,7 +173,7 @@ func (r *RaftNode) applyCommitted() {
 						Key:       cmd.Key,
 					})
 				}
-			} else if cmd.ID == protocol.CmdExpire {
+			case protocol.CmdExpire:
 				r.store.Expire(cmd.Key, cmd.TTL)
 				if r.aofWriter != nil {
 					var expiresAt int64
@@ -205,4 +206,3 @@ func (r *RaftNode) GetPeerURL(id NodeID) (string, bool) {
 	url, ok := r.peers[id]
 	return url, ok
 }
-
