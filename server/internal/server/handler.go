@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ARCoder181105/kvstore/internal/metrics"
 	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/protocol"
 )
@@ -33,6 +34,41 @@ func (s *Server) handleConn(conn net.Conn) {
 }
 
 func (s *Server) executeCommand(cmd *protocol.Command) *protocol.Response {
+	start := time.Now()
+	commandName := func(id byte) string {
+		switch id {
+		case protocol.CmdSet:
+			return "set"
+		case protocol.CmdGet:
+			return "get"
+		case protocol.CmdDel:
+			return "del"
+		case protocol.CmdExpire:
+			return "expire"
+		case protocol.CmdTTL:
+			return "ttl"
+		case protocol.CmdKeys:
+			return "keys"
+		case protocol.CmdIncr:
+			return "incr"
+		case protocol.CmdMSet:
+			return "mset"
+		case protocol.CmdMGet:
+			return "mget"
+		case protocol.CmdPing:
+			return "ping"
+		default:
+			return "unknown"
+		}
+	}
+
+	cmdLabel := commandName(cmd.ID)
+
+	defer func() {
+		metrics.CommandDurationSeconds.WithLabelValues(cmdLabel).Observe(time.Since(start).Seconds())
+		metrics.CommandsTotal.WithLabelValues(cmdLabel).Inc()
+	}()
+	
 	switch cmd.ID {
 
 	case protocol.CmdSet:

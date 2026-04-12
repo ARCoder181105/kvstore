@@ -1,73 +1,103 @@
-# 📘 KVStore Learning Guide & Implementation Checklist
+# 📘 KVStore Learning Guide & Implementation Workbook
 
-So far, you've done an incredible job laying the foundation. We have a pure memory storage engine, a binary TCP protocol, a persistence layer, an HTTP API, and a beautiful Next.js frontend! 🚀
+Welcome to your learning guide for the KVStore project! The primary goal of this project is not just to have a working database, but to **make you a better systems programmer**. 
 
-Right now, you are tackling **Phase 7: Raft Consensus**. Raft is one of the most rewarding algorithms to build, but also one of the easiest places to introduce subtle bugs.
-
-Based on our analysis, here is the exact state of your project, what you left out, and how to approach finishing it—**without me writing the code for you**. 
+This document serves as your interactive workbook. Instead of copy-pasting code, use this guide to understand *what* to build, *why* it matters, and *how* to approach it.
 
 ---
 
 ## 🎯 Current Project State
 
-- **Phase 1-6:** ✅ Largely Complete. The core store, TCP networking, and API wrappers are well-defined.
-- **Phase 7 (Raft):** ✅ Complete. You have implemented robust leader election, replication, and proxying.
-- **Phase 8 (Observability):** 🚧 In Progress. This is your next focus area!
+- **Phases 1-6:** ✅ **Complete.** Core storage, TCP, persistence, API, and UI are built!
+- **Phase 7:** ✅ **Complete.** Raft consensus (leader election, replication) is working.
+- **Phase 8:** 🚧 **In Progress.** Observability and Benchmarks. This is your current focus!
 
 ---
 
-## ✅ The "Left Out Stuff" Checklist
+## 🚀 Phase 8: Observability and Benchmarks (Your Next Challenge)
 
-Here is exactly what remains for you to build to finish this system:
+### The Goal
+A production-grade database is flying blind without metrics. In this phase, you will write a Prometheus integration to track performance and a benchmarking tool to prove your system can handle the load.
 
-### 🛠️ Raft Consensus (Weeks 10-13)
-- [x] **Election Timer Loop:** A background goroutine that constantly ticks and triggers an election if a heartbeat hasn't been received in 150-300ms.
-- [x] **RPC Structures:** Define `RequestVoteArgs`, `RequestVoteReply` and `AppendEntriesArgs`, `AppendEntriesReply`.
-- [x] **Candidate Logic (`startElection`):** Transitioning to candidate, incrementing term, voting for self, and sending `RequestVote` RPCs in parallel.
-- [x] **Follower Logic (`RequestVote` Handler):** Evaluating inbound votes. Granting a vote if the candidate's term is newer and their log is at least as up-to-date.
-- [x] **Leader Logic (`AppendEntries` Heartbeat):** Sending empty log entries every 50ms so followers don't trigger new elections.
-- [x] **Log Replication:** Leader accepts commands from clients, appends to its own log, and broadcasts them via `AppendEntries`.
-- [x] **Commit Index Management:** Advancing the `commitIndex` once a majority of nodes acknowledge a log entry.
-- [x] **State Machine Application:** A background loop (`applyCommitted()`) that reads from the `commitIndex` and physically executes those commands on the KV `Store`.
-- [x] **Leader Write Proxy:** Ensuring followers who receive arbitrary writes proxy them safely over to the active leader.  
-
-### 📊 Observability (Week 14)
-- [ ] **Prometheus Metrics:** Tracking command counts, latencies, etc.
-- [ ] **Load Testing / Benchmarking (`bench/bench.go`):** Validating the >100K ops/sec throughput target.
+**Rule of Thumb:** Do not copy code blindly. Read the hint provided, try implementing it in the file yourself, and then test.
 
 ---
 
-## 🧭 Your Path Forward (Teacher's Guide)
+### Step 1: Prepare Your Workspace
+Before you write logic, set up the standard library tools used by the industry.
+- **Task:** Add the Prometheus Go client to your project.
+- **Command to run in `server/`:** 
+  ```bash
+  go get github.com/prometheus/client_golang/prometheus
+  go get github.com/prometheus/client_golang/prometheus/promhttp
+  ```
 
-Since my goal is to help you become a better programmer, I won’t write this code for you. Instead, let me act as your pair-programming instructor. 
+### Step 2: Define the Metrics (`server/internal/metrics/metrics.go`)
+You need a dedicated package where all your metrics are strongly typed and globally accessible.
 
-### First Step: The Election Timer
-You are currently inside `internal/raft/election.go` and `node.go`. Your very first job is to ensure a node doesn't stay a `Follower` forever.
+- **Task:** Create `metrics.go` inside the `metrics` package and define three variables using the `prometheus` module.
+  - **1. CommandsTotal (CounterVec):** Name it `kvstore_commands_total`. Include a label named `"command"`.
+  - **2. KeysTotal (Gauge):** Name it `kvstore_keys_total`. No labels required.
+  - **3. CommandDurationSeconds (HistogramVec):** Name it `kvstore_command_duration_seconds`. Use buckets: `.0001, .0005, .001, .005, .01, .05, .1`. Include a label named `"command"`.
+- **Task:** Write a single `func Register()` in this file that calls `prometheus.MustRegister` with all three of your metrics.
+- 💡 **Pedagogical Hint:** Why use a *Vector* for counters and histograms? Because it allows us to group latencies and counts dynamically by command type (e.g., SET vs GET), giving us rich insights in Grafana!
 
-**Stop and think about these questions:**
-1. *In `node.go`, we have `electionTimeout` and `electionResetAt`. If a node boots up as a Follower, how does it know when to become a Candidate?*
-2. *Raft demands "randomized election timeouts" (e.g., 150ms to 300ms). Why? What catastrophe would happen if all 3 nodes had an exact 150ms timeout?*
+### Step 3: Instrument the TCP Server (`server/internal/server/handler.go`)
+Your database needs to record metrics exactly when it does work. 
 
-**Implementation Direction:**
-Create a method `runElectionTimer()` that runs inside a goroutine as soon as `New(...)` is called. It should wake up every few milliseconds, check the current time against `node.electionResetAt` + `node.electionTimeout`. If elapsed, call a `startElection()` method! 
+- **Task:** Open `executeCommand`. Record the start time at the very top using `time.Now()`.
+- **Task:** Use an anonymous `defer` function right after the start time. Inside that defer:
+  1. Record duration in the histogram using `time.Since(...)`.
+  2. Increment the counter.
+- 💡 **Pedagogical Hint:** Why use `defer` here instead of writing it at the bottom of the function? Notice how many `return` statements exist in your big `switch` statement. A `defer` guarantees execution no matter which path the code takes to return, preventing dropped metrics!
 
-### Second Step: The Vote Request
-Once your timer fires, your node is a candidate. It must ask for votes.
+### Step 4: Instrument the Raft State Machine (`server/internal/raft/node.go`)
+Your TCP server handles single-node direct connections, but what about Raft-replicated operations across the cluster?
 
-**Questions:**
-1. *Before you ask for votes from peers, what two state properties must you change locally? (Hint: See section 5.2 of the Raft paper).*
-2. *If a node receives a `RequestVote`, under what exact scenarios must it reject the vote AND under what scenarios must it accept?*
+- **Task:** Navigate to `applyCommitted()`. This is where all committed Raft logs actually hit the store.
+- **Task:** Apply the exact same pattern as Step 3 for any command processed here (incrementing the counter).
+- **Task:** Every time a batch of commands is applied in `applyCommitted`, update your `KeysTotal` gauge with the current total count from the store.
+- 💡 **Pedagogical Hint:** Why measure here? Because followers never execute logic in `executeCommand`—they only get data via Raft. If you only instrumented the TCP layer, you'd be missing metrics on all your Raft followers!
+
+### Step 5: Start the Metrics Engine
+Now that metrics are being tracked in memory, expose them so a Prometheus scraper can fetch them.
+
+- **Task:** In `api/server.go` (where your HTTP routes are mounted), mount the prometheus handler: `r.Handle("/metrics", promhttp.Handler())`.
+- **Task:** Open `cmd/server/main.go`. Before your server starts running, call your `metrics.Register()` function exactly once to wire up your custom metrics to the registry.
+
+### Step 6: Expose Pprof (Go Profiling)
+To find out why a Go program is slow, we use `pprof`.
+- **Task:** In `cmd/server/main.go`, add this specific, blank import:
+  ```go
+  import _ "net/http/pprof"
+  ```
+- 💡 **Pedagogical Hint:** The `_` (blank identifier) runs the package's `init()` function without you needing to call its methods. For `pprof`, its `init()` automatically injects CPU/Memory profiling endpoints into the default HTTP mux.
+
+### Step 7: Build the Benchmark Tool (`bench/bench.go`)
+You claim this database is fast. Prove it.
+
+- **Task:** Create a standalone Go program (with its own `main` package) in a new `bench/bench.go` file.
+- **Task:** Setup command line flags: `--connections` (default 50), `--duration` (default 10s), etc.
+- **Task:** Spawn N goroutines. Each one should establish *one* continuous TCP connection. In a `for` loop, each goroutine should pick a random string, send a `SET` command, then `GET` the same key.
+- **Task:** Keep a global atomic counter of operations. Wait until `--duration` ends, then divide the counter by the seconds to print `ops/sec`.
+- 💡 **Pedagogical Hint:** In benchmarks, locks (Mutexes) can be a bottleneck. Track your total operations using `sync/atomic` (like `atomic.AddInt64`). This uses lock-free hardware instructions and ensures your benchmark tool isn't slowing down your test! Also make sure your client uses one persistent connection rather than reconnecting per operation, otherwise you end up benchmarking the OS's handshake speed rather than your KV-store logic.
 
 ---
 
-## 📚 Essential Reading
+### Step 8: Visualize with Grafana & Prometheus (Bonus Challenge)
+Raw text metrics at `/metrics` are great, but industry standards use dashboards for real-time monitoring.
 
-Do not write code for Raft without having the answers immediately available. Distribute systems rely purely on getting these edge cases right.
-
-1. **[The Secret Lives of Data (Raft Visualization)](https://thesecretlivesofdata.com/raft/)**: Watch this animation completely. It's the best summary of everything you're about to write.
-2. **[The Raft Paper](https://raft.github.io/raft.pdf)**: Read **Sections 5.1 through 5.4**. You do not need to read the whole paper, but these 4 pages are your "source of truth". They literally define the `if/else` statements you will write in Go.
-3. Your local `docs/RAFT.md` file. It breaks down the architecture specifically mapped to *this* KV Store project's types!
+- **Task:** Update your `docker-compose.yml` to include the official `prom/prometheus` and `grafana/grafana` images.
+- **Task:** Create a `prometheus.yml` config file and mount it into your Prometheus container. Configure it to scrape all 3 of your KVStore Raft nodes (`node1:8080`, `node2:8080`, `node3:8080`).
+- **Task:** Boot up Grafana on port `3001` (to avoid conflicting with Next.js), connect Prometheus as a data source, and build a beautiful dashboard showing your `kvstore_command_duration_seconds` heatmap and `kvstore_commands_total` rates!
+- 💡 **Pedagogical Hint:** Using rate functions in Grafana like `rate(kvstore_commands_total[1m])` converts your raw, ever-growing counter into a clean "Operations per Second" graph!
 
 ---
 
-Whenever you're ready, take a stab at creating the `runElectionTimer` mechanism or setting up the RPC structures. Let me know what you try, and I will be right here to review it and guide your logic!
+### ✅ Phase 8 Definition of Done Check
+- Can you `curl localhost:8080/metrics` and see raw Prometheus text output?
+- Are the counters accumulating correctly when you run operations via the CLI?
+- Does your `bench.go` run successfully and output a >100,000 throughput rate?
+- **(Bonus)** Do you have a vibrant Grafana dashboard rendering your Prometheus data in real-time?
+
+Whenever you get stuck on an implementation detail for these steps, think about the Go primitives you've learned. Good luck, and start writing code!
