@@ -111,6 +111,12 @@ func (r *RaftNode) advanceCommitIndex() {
 			}
 			if matches > (len(r.peers)+1)/2 {
 				r.commitIndex = n
+
+				select {
+				case r.commitReady <- struct{}{}:
+				default:
+				}
+
 				return
 			}
 		}

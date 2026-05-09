@@ -67,8 +67,9 @@ type RaftNode struct {
 	// pending client requests (index -> response channel)
 	pending map[uint64]chan interface{}
 
-	store     *store.Store
-	aofWriter *aof.AOFWriter
+	store       *store.Store
+	aofWriter   *aof.AOFWriter
+	commitReady chan struct{}
 }
 
 func New(id NodeID, peers map[NodeID]string, store *store.Store, aofWriter *aof.AOFWriter) *RaftNode {
@@ -86,6 +87,7 @@ func New(id NodeID, peers map[NodeID]string, store *store.Store, aofWriter *aof.
 		aofWriter:       aofWriter,
 		electionResetAt: time.Now(),
 		electionTimeout: time.Duration(150+rand.Intn(150)) * time.Millisecond,
+		commitReady:     make(chan struct{}, 1),
 	}
 
 	go r.runElectionTimer()
@@ -129,15 +131,24 @@ func (r *RaftNode) Submit(cmd protocol.Command) (interface{}, error) {
 	case res := <-waitCh:
 		return res, nil
 	case <-time.After(2 * time.Second):
+		r.pendingMu.Lock()
+		delete(r.pending, index)
+		r.pendingMu.Unlock()
 		return nil, fmt.Errorf("raft submit timeout")
 	}
 }
 
 func (r *RaftNode) applyCommitted() {
 	for {
-		time.Sleep(10 * time.Millisecond)
-
 		r.mu.Lock()
+
+		// If there is nothing to apply, unlock and wait for a signal
+		for r.commitIndex <= r.lastApplied {
+			r.mu.Unlock()
+			<-r.commitReady // Go scheduler puts this goroutine to sleep here!
+			r.mu.Lock()
+		}
+
 		var commandsToApply []LogEntry
 		for r.commitIndex > r.lastApplied {
 			r.lastApplied++

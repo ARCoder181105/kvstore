@@ -144,6 +144,11 @@ func (r *RaftNode) AppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 		} else {
 			r.commitIndex = lastIndex
 		}
+
+		select {
+		case r.commitReady <- struct{}{}:
+		default:
+		}
 	}
 
 	return AppendEntriesReply{
