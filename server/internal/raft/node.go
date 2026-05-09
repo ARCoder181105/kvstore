@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ARCoder181105/kvstore/internal/metrics"
 	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/protocol"
 	"github.com/ARCoder181105/kvstore/internal/store"
@@ -67,8 +68,9 @@ type RaftNode struct {
 	// pending client requests (index -> response channel)
 	pending map[uint64]chan interface{}
 
-	store     *store.Store
-	aofWriter *aof.AOFWriter
+	store       *store.Store
+	aofWriter   *aof.AOFWriter
+	commitReady chan struct{}
 }
 
 func New(id NodeID, peers map[NodeID]string, store *store.Store, aofWriter *aof.AOFWriter) *RaftNode {
@@ -86,6 +88,7 @@ func New(id NodeID, peers map[NodeID]string, store *store.Store, aofWriter *aof.
 		aofWriter:       aofWriter,
 		electionResetAt: time.Now(),
 		electionTimeout: time.Duration(150+rand.Intn(150)) * time.Millisecond,
+		commitReady:     make(chan struct{}, 1),
 	}
 
 	go r.runElectionTimer()
@@ -112,7 +115,7 @@ func (r *RaftNode) Submit(cmd protocol.Command) (interface{}, error) {
 
 	index := uint64(len(r.log))
 	term := r.currentTerm
-	
+
 	waitCh := make(chan interface{}, 1)
 	r.pendingMu.Lock()
 	r.pending[index] = waitCh
@@ -129,15 +132,24 @@ func (r *RaftNode) Submit(cmd protocol.Command) (interface{}, error) {
 	case res := <-waitCh:
 		return res, nil
 	case <-time.After(2 * time.Second):
+		r.pendingMu.Lock()
+		delete(r.pending, index)
+		r.pendingMu.Unlock()
 		return nil, fmt.Errorf("raft submit timeout")
 	}
 }
 
 func (r *RaftNode) applyCommitted() {
 	for {
-		time.Sleep(10 * time.Millisecond)
-		
 		r.mu.Lock()
+
+		// If there is nothing to apply, unlock and wait for a signal
+		for r.commitIndex <= r.lastApplied {
+			r.mu.Unlock()
+			<-r.commitReady // Go scheduler puts this goroutine to sleep here!
+			r.mu.Lock()
+		}
+
 		var commandsToApply []LogEntry
 		for r.commitIndex > r.lastApplied {
 			r.lastApplied++
@@ -148,8 +160,10 @@ func (r *RaftNode) applyCommitted() {
 
 		for _, entry := range commandsToApply {
 			cmd := entry.Command
-			if cmd.ID == protocol.CmdSet {
+			switch cmd.ID {
+			case protocol.CmdSet:
 				r.store.Set(cmd.Key, cmd.Value, cmd.TTL)
+				metrics.CommandsTotal.WithLabelValues(raftCommandName(cmd.ID)).Inc()
 				if r.aofWriter != nil {
 					var expiresAt int64
 					if cmd.TTL > 0 {
@@ -163,8 +177,10 @@ func (r *RaftNode) applyCommitted() {
 						ExpiresAt: expiresAt,
 					})
 				}
-			} else if cmd.ID == protocol.CmdDel {
+
+			case protocol.CmdDel:
 				r.store.Delete(cmd.Key)
+				metrics.CommandsTotal.WithLabelValues(raftCommandName(cmd.ID)).Inc()
 				if r.aofWriter != nil {
 					r.aofWriter.Append(aof.AOFEntry{
 						Timestamp: time.Now().UnixNano(),
@@ -172,8 +188,10 @@ func (r *RaftNode) applyCommitted() {
 						Key:       cmd.Key,
 					})
 				}
-			} else if cmd.ID == protocol.CmdExpire {
+
+			case protocol.CmdExpire:
 				r.store.Expire(cmd.Key, cmd.TTL)
+				metrics.CommandsTotal.WithLabelValues(raftCommandName(cmd.ID)).Inc()
 				if r.aofWriter != nil {
 					var expiresAt int64
 					if cmd.TTL > 0 {
@@ -196,6 +214,11 @@ func (r *RaftNode) applyCommitted() {
 			}
 			r.pendingMu.Unlock()
 		}
+
+		// Update key count gauge once after the whole batch
+		if r.store != nil {
+			metrics.KeysTotal.Set(float64(r.store.Count()))
+		}
 	}
 }
 
@@ -206,3 +229,15 @@ func (r *RaftNode) GetPeerURL(id NodeID) (string, bool) {
 	return url, ok
 }
 
+func raftCommandName(id byte) string {
+	switch id {
+	case protocol.CmdSet:
+		return "set"
+	case protocol.CmdDel:
+		return "del"
+	case protocol.CmdExpire:
+		return "expire"
+	default:
+		return "unknown"
+	}
+}
