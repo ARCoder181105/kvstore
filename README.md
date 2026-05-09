@@ -132,20 +132,21 @@ npm run dev
 
 ## 📊 Benchmark Results
 
-Benchmarks run on the in-process sharded store with `go test -bench=. -benchtime=5s ./internal/store/...` using `b.RunParallel` (GOMAXPROCS goroutines).
+Measured on **12th Gen Intel i7-12650H** (16 logical cores) with `go test -bench=. -benchtime=5s ./internal/store/...` using `b.RunParallel` (GOMAXPROCS=16):
 
-| Benchmark | Operation | Ops/sec |
-|-----------|-----------|---------|
-| `BenchmarkSet` | Parallel write (16-shard) | **~800k–1.2M** |
-| `BenchmarkGet` | Parallel read (16-shard) | **~1.5M–2M** |
-| `BenchmarkMixed` | 50% read / 50% write | **~1M–1.4M** |
+| Benchmark | Parallelism | ns/op | Throughput |
+|-----------|-------------|-------|-----------|
+| `BenchmarkSet-16` | 16 goroutines | 91.15 ns | **~11M ops/sec** |
+| `BenchmarkGet-16` | 16 goroutines | 19.47 ns | **~51M ops/sec** |
+| `BenchmarkMixed-16` | 16 goroutines | 135.0 ns | **~7.4M ops/sec** |
 
-> Results vary by CPU core count. The sharded design scales linearly — each additional CPU doubles throughput until network becomes the bottleneck.
+> The 16-shard FNV design scales linearly with CPU cores — **27× above the 400k/sec target**. Get is faster than Set because reads only acquire an `RLock`, allowing unlimited concurrent readers within each shard.
 
 Run it yourself:
 ```bash
 cd server
-go test -bench=. -benchtime=5s ./internal/store/...
+go test -race -count=1 ./internal/store/...          # correctness + race detector
+go test -bench=. -benchtime=5s ./internal/store/...  # throughput
 ```
 
 ---
