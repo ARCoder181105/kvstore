@@ -150,3 +150,26 @@ go test -bench=. -benchtime=5s ./internal/store/...  # throughput
 ```
 
 ---
+
+## 🔮 Roadmap
+
+### v1.1 — Hardening
+- [ ] **TLS support** — encrypt all node-to-node and client-to-server traffic
+- [ ] **Authentication** — API key / token-based auth for the HTTP API and TCP server
+- [ ] **Automatic snapshotting** — periodic RDB snapshots with configurable interval
+- [ ] **Raft log compaction** — trim the Raft log after snapshots to bound disk usage
+- [ ] **Graceful node removal** — dynamic cluster membership changes without downtime
+
+### v1.2 — Operations
+- [ ] **`kvstore-operator`** — Kubernetes operator for deploying and managing clusters
+- [ ] **Helm chart** — one-command Kubernetes deployment
+- [ ] **Config file support** — YAML/TOML config as an alternative to env vars
+- [ ] **Admin HTTP API** — cluster health, node promotion, live config reload
+
+### v2.0 — Scale-out
+- [ ] **Hash-based sharding across nodes** — distribute keyspace across N nodes (not just replication)
+- [ ] **Multi-region replication** — async cross-region replication with conflict resolution
+- [ ] **Pub/Sub channels** — Redis-style publish/subscribe messaging
+- [ ] **Lua scripting** — atomic multi-command scripts executed server-side
+- [ ] **Secondary indexes** — query by value ranges, not just exact key lookups
+
