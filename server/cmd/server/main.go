@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ARCoder181105/kvstore/internal/api"
+	"github.com/ARCoder181105/kvstore/internal/metrics"
 	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/raft"
 	"github.com/ARCoder181105/kvstore/internal/server"
@@ -24,6 +25,7 @@ func getEnv(key, fallback string) string {
 }
 
 func main() {
+	metrics.Register()
 	nodeID := getEnv("NODE_ID", "node1")
 	httpAddr := getEnv("HTTP_ADDR", ":8080")
 	tcpAddr := getEnv("TCP_ADDR", ":6379")

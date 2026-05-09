@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/ARCoder181105/kvstore/internal/raft"
 	"github.com/ARCoder181105/kvstore/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type APIServer struct {
@@ -41,6 +43,15 @@ func (s *APIServer) setupRoutes() {
 	r.Get("/ws/events", s.handleWebSocket)
 	r.Post("/raft/requestvote", s.handleRequestVote)
 	r.Post("/raft/appendentries", s.handleAppendEntries)
+
+	// pprof endpoints
+	r.HandleFunc("/debug/pprof/", pprof.Index)
+	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	r.Handle("/metrics", promhttp.Handler())
 
 	s.router = r
 }

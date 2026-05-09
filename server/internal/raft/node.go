@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ARCoder181105/kvstore/internal/metrics"
 	aof "github.com/ARCoder181105/kvstore/internal/persistence"
 	"github.com/ARCoder181105/kvstore/internal/protocol"
 	"github.com/ARCoder181105/kvstore/internal/store"
@@ -162,6 +163,7 @@ func (r *RaftNode) applyCommitted() {
 			switch cmd.ID {
 			case protocol.CmdSet:
 				r.store.Set(cmd.Key, cmd.Value, cmd.TTL)
+				metrics.CommandsTotal.WithLabelValues(raftCommandName(cmd.ID)).Inc()
 				if r.aofWriter != nil {
 					var expiresAt int64
 					if cmd.TTL > 0 {
@@ -175,8 +177,10 @@ func (r *RaftNode) applyCommitted() {
 						ExpiresAt: expiresAt,
 					})
 				}
+
 			case protocol.CmdDel:
 				r.store.Delete(cmd.Key)
+				metrics.CommandsTotal.WithLabelValues(raftCommandName(cmd.ID)).Inc()
 				if r.aofWriter != nil {
 					r.aofWriter.Append(aof.AOFEntry{
 						Timestamp: time.Now().UnixNano(),
@@ -184,8 +188,10 @@ func (r *RaftNode) applyCommitted() {
 						Key:       cmd.Key,
 					})
 				}
+
 			case protocol.CmdExpire:
 				r.store.Expire(cmd.Key, cmd.TTL)
+				metrics.CommandsTotal.WithLabelValues(raftCommandName(cmd.ID)).Inc()
 				if r.aofWriter != nil {
 					var expiresAt int64
 					if cmd.TTL > 0 {
@@ -208,6 +214,11 @@ func (r *RaftNode) applyCommitted() {
 			}
 			r.pendingMu.Unlock()
 		}
+
+		// Update key count gauge once after the whole batch
+		if r.store != nil {
+			metrics.KeysTotal.Set(float64(r.store.Count()))
+		}
 	}
 }
 
@@ -216,4 +227,17 @@ func (r *RaftNode) GetPeerURL(id NodeID) (string, bool) {
 	defer r.mu.Unlock()
 	url, ok := r.peers[id]
 	return url, ok
+}
+
+func raftCommandName(id byte) string {
+	switch id {
+	case protocol.CmdSet:
+		return "set"
+	case protocol.CmdDel:
+		return "del"
+	case protocol.CmdExpire:
+		return "expire"
+	default:
+		return "unknown"
+	}
 }
