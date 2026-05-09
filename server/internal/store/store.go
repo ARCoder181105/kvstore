@@ -396,6 +396,10 @@ func (s *Store) publish(event Event) {
 		select {
 		case s.subscribers[i] <- event:
 		default:
+			// LOAD SHEDDING: If a subscriber (like a WebSocket client) is reading
+			// too slowly and their buffer fills up, we drop the event.
+			// This prevents a single slow client from blocking the database's
+			// write-path, as publish() is called synchronously during Set/Del.
 		}
 	}
 
