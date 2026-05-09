@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -242,4 +243,66 @@ func TestSlowSubscriberDoesNotBlockStore(t *testing.T) {
 		t.Fatalf("store blocked for %v", elapsed)
 	}
 
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmarks — run with: go test -bench=. -benchtime=5s ./internal/store/...
+// Target: 400k+ ops/sec for Set and Get with the 16-shard store.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// BenchmarkSet measures the raw Set throughput using random-looking keys
+// distributed across all 16 shards.
+func BenchmarkSet(b *testing.B) {
+	s := New()
+	val := []byte("benchmark_value_1234567890")
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			// Vary the key so we exercise all shards and avoid map hot-spots.
+			key := "bench:" + strconv.Itoa(i%10000)
+			s.Set(key, val, 0)
+			i++
+		}
+	})
+}
+
+// BenchmarkGet measures the raw Get throughput after pre-populating the store.
+func BenchmarkGet(b *testing.B) {
+	s := New()
+	val := []byte("benchmark_value_1234567890")
+	for i := 0; i < 10000; i++ {
+		s.Set("bench:"+strconv.Itoa(i), val, 0)
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			s.Get("bench:" + strconv.Itoa(i%10000))
+			i++
+		}
+	})
+}
+
+// BenchmarkMixed simulates a realistic 50% read / 50% write workload
+// spread across all shards.
+func BenchmarkMixed(b *testing.B) {
+	s := New()
+	val := []byte("benchmark_value_1234567890")
+	for i := 0; i < 10000; i++ {
+		s.Set("bench:"+strconv.Itoa(i), val, 0)
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			key := "bench:" + strconv.Itoa(i%10000)
+			if i%2 == 0 {
+				s.Set(key, val, 0)
+			} else {
+				s.Get(key)
+			}
+			i++
+		}
+	})
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ARCoder181105/kvstore/internal/metrics"
 	"github.com/ARCoder181105/kvstore/internal/protocol"
 	"github.com/ARCoder181105/kvstore/internal/raft"
 )
@@ -70,6 +71,12 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleGetKey(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		metrics.CommandsTotal.WithLabelValues("get").Inc()
+		metrics.CommandDurationSeconds.WithLabelValues("get").Observe(time.Since(start).Seconds())
+	}()
+
 	key := chi.URLParam(r, "key")
 
 	val, ok := s.store.Get(key)
@@ -105,6 +112,11 @@ func (s *APIServer) handleGetKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleSetKey(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		metrics.CommandsTotal.WithLabelValues("set").Inc()
+		metrics.CommandDurationSeconds.WithLabelValues("set").Observe(time.Since(start).Seconds())
+	}()
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {

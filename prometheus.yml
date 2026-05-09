@@ -1,0 +1,22 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Prometheus scrape configuration for KVStore 3-node Raft cluster
+#
+# Each node exposes /metrics via promhttp.Handler() on port 8080.
+# Docker DNS resolves node1/node2/node3 within the kvstore-net bridge.
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  scrape_interval:     5s   # Pull metrics every 5 seconds
+  evaluation_interval: 5s   # Evaluate alerting rules every 5 seconds
+  scrape_timeout:      4s   # Timeout before marking a scrape as failed
+
+scrape_configs:
+  - job_name: 'kvstore'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets:
+          - 'node1:8080'
+          - 'node2:8080'
+          - 'node3:8080'
+        labels:
+          cluster: 'kvstore'

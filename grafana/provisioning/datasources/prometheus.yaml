@@ -1,0 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Grafana auto-provisioned data source — Prometheus
+#
+# Grafana reads this file on startup so no manual UI configuration is needed.
+# The Prometheus service is reachable at http://prometheus:9090 within
+# the kvstore-net Docker bridge network.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "5s"

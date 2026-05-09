@@ -39,36 +39,43 @@ func (h *TTLHeap) Pop() any {
 	return item
 }
 
-// StartEviction runs the background TTL eviction loop.
-// instead of spinning every 100ms on an empty heap, it blocks on
-// s.notify until a TTL key is added — zero CPU when there is nothing to evict.
+// StartEviction launches one background eviction goroutine per shard.
+// Each goroutine independently manages its shard's TTL heap so that
+// eviction work is spread across all 16 shards concurrently.
 func (s *Store) StartEviction(ctx context.Context) {
+	for i := range s.shards {
+		go s.runShardEviction(ctx, &s.shards[i])
+	}
+}
+
+// runShardEviction is the eviction loop for a single shard.
+// It blocks on sh.notify when the heap is empty to avoid spinning.
+func (s *Store) runShardEviction(ctx context.Context, sh *shard) {
 	for {
-		// --- Wait until the heap has at least one entry ---
-		s.mu.RLock()
-		empty := s.ttlHeap.Len() == 0
-		s.mu.RUnlock()
+		// --- Wait until the shard has at least one TTL entry ---
+		sh.mu.RLock()
+		empty := sh.ttlHeap.Len() == 0
+		sh.mu.RUnlock()
 
 		if empty {
-			// Block until a TTL key is added (or shutdown)
+			// Block until a TTL key is added (or shutdown).
 			select {
 			case <-ctx.Done():
 				return
-			case <-s.notify:
-				// A TTL key was just pushed; loop back and check the heap
+			case <-sh.notify:
+				// A TTL key was just pushed; loop back and check the heap.
 				continue
 			}
 		}
 
-		expired := make([]string, 0)
-		// --- Peek at the soonest expiry ---
-		s.mu.RLock()
-		if s.ttlHeap.Len() == 0 {
-			s.mu.RUnlock()
+		// --- Peek at the soonest expiry in this shard ---
+		sh.mu.RLock()
+		if sh.ttlHeap.Len() == 0 {
+			sh.mu.RUnlock()
 			continue
 		}
-		nextExpiry := (*s.ttlHeap)[0].expiresAt
-		s.mu.RUnlock()
+		nextExpiry := (*sh.ttlHeap)[0].expiresAt
+		sh.mu.RUnlock()
 
 		now := time.Now().UnixNano()
 		if nextExpiry > now {
@@ -77,23 +84,24 @@ func (s *Store) StartEviction(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-time.After(sleepDuration):
-				// Might have woken early; will re-check below
-			case <-s.notify:
-				// A new TTL key was added — it might expire sooner; re-evaluate
+				// May have woken early; will re-check below.
+			case <-sh.notify:
+				// A new TTL key was added — it might expire sooner; re-evaluate.
 				continue
 			}
 		}
 
-		// --- Evict all keys whose deadline has passed ---
-		s.mu.Lock()
-		for s.ttlHeap.Len() > 0 && (*s.ttlHeap)[0].expiresAt <= time.Now().UnixNano() {
-			item := heap.Pop(s.ttlHeap).(*TTLItem)
-			delete(s.data, item.key)
-			delete(s.ttlIndex, item.key)
-
+		// --- Evict all keys in this shard whose deadline has passed ---
+		expired := make([]string, 0)
+		sh.mu.Lock()
+		for sh.ttlHeap.Len() > 0 && (*sh.ttlHeap)[0].expiresAt <= time.Now().UnixNano() {
+			item := heap.Pop(sh.ttlHeap).(*TTLItem)
+			delete(sh.data, item.key)
+			delete(sh.ttlIndex, item.key)
 			expired = append(expired, item.key)
 		}
-		s.mu.Unlock()
+		sh.mu.Unlock()
+
 		for _, key := range expired {
 			s.publish(Event{Type: EventExpired, Key: key, Timestamp: time.Now().UTC()})
 		}

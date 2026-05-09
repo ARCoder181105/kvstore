@@ -1,0 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Grafana dashboard provisioning config
+#
+# Tells Grafana where to load pre-built dashboard JSON files from.
+# Any .json file placed in /var/lib/grafana/dashboards will be auto-imported.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: 1
+
+providers:
+  - name: 'KVStore'
+    orgId: 1
+    folder: 'KVStore'
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
