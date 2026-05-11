@@ -11,9 +11,7 @@ import (
 	"time"
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Entry
-// ─────────────────────────────────────────────────────────────────────────────
 
 // Entry is the value stored for every key.
 // Value is raw bytes — the store does not care about encoding.
@@ -27,9 +25,7 @@ func (e *Entry) IsExpired() bool {
 	return e.ExpiresAt > 0 && time.Now().UnixNano() > e.ExpiresAt
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Sharded Store
-// ─────────────────────────────────────────────────────────────────────────────
 
 const numShards = 16
 
@@ -82,9 +78,7 @@ func (s *Store) shardFor(key string) *shard {
 	return &s.shards[h.Sum32()%numShards]
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 func expiresAt(ttlNs int64) int64 {
 	if ttlNs == 0 {
@@ -115,9 +109,7 @@ func pushTTL(sh *shard, key string, absExpiry int64) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Core Operations
-// ─────────────────────────────────────────────────────────────────────────────
 
 func (s *Store) Ping() string { return "PONG" }
 
@@ -262,9 +254,7 @@ func (s *Store) Incr(key string) (int64, error) {
 	return val, nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Batch Operations
-// ─────────────────────────────────────────────────────────────────────────────
 
 // MGet fetches multiple keys. Each key is looked up independently in its own
 // shard — no global lock is held, so reads are concurrent-safe across shards.
@@ -295,9 +285,7 @@ func (s *Store) MSet(entries map[string][]byte) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Scan / Aggregate operations  (hold each shard lock independently)
-// ─────────────────────────────────────────────────────────────────────────────
+// Scan / Aggregate operations (hold each shard lock independently)
 
 // Keys returns all non-expired keys matching the glob pattern.
 func (s *Store) Keys(pattern string) []string {
@@ -399,9 +387,7 @@ func (s *Store) SetRaw(key string, entry *Entry) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pub/Sub (top-level, unchanged)
-// ─────────────────────────────────────────────────────────────────────────────
+// Pub/Sub
 
 func (s *Store) Subscribe() chan Event {
 	ch := make(chan Event, 64)

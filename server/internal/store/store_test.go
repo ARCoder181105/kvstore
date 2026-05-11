@@ -245,10 +245,8 @@ func TestSlowSubscriberDoesNotBlockStore(t *testing.T) {
 
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Benchmarks — run with: go test -bench=. -benchtime=5s ./internal/store/...
 // Target: 400k+ ops/sec for Set and Get with the 16-shard store.
-// ─────────────────────────────────────────────────────────────────────────────
 
 // BenchmarkSet measures the raw Set throughput using random-looking keys
 // distributed across all 16 shards.
